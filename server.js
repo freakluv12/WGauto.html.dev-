@@ -2,16 +2,19 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
+const crypto = require('crypto');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// ВАЖНО: Установите JWT_SECRET в переменные окружения!
-if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
-  console.error('FATAL: JWT_SECRET must be set in production!');
-  process.exit(1);
+// JWT_SECRET - генерируем если не установлен, но предупреждаем
+let JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  JWT_SECRET = crypto.randomBytes(64).toString('hex');
+  console.warn('⚠️  WARNING: JWT_SECRET not set! Generated random secret for this session.');
+  console.warn('⚠️  Set JWT_SECRET in environment variables for production!');
+  console.warn('⚠️  Add this to Render Environment: JWT_SECRET=' + JWT_SECRET);
 }
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -111,23 +114,23 @@ async function initDB() {
     // Создать admin если не существует
     const adminExists = await pool.query('SELECT id FROM users WHERE email = $1', ['admin@wgauto.com']);
     if (adminExists.rows.length === 0) {
-      const randomPassword = Math.random().toString(36).slice(-10);
+      const randomPassword = crypto.randomBytes(8).toString('hex');
       const hashedPassword = await bcrypt.hash(randomPassword, 10);
       await pool.query(
         'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3)',
         ['admin@wgauto.com', hashedPassword, 'ADMIN']
       );
       console.log('='.repeat(60));
-      console.log('Admin user created!');
-      console.log('Email: admin@wgauto.com');
-      console.log('Password:', randomPassword);
-      console.log('SAVE THIS PASSWORD! It will not be shown again.');
+      console.log('✅ Admin user created!');
+      console.log('📧 Email: admin@wgauto.com');
+      console.log('🔑 Password:', randomPassword);
+      console.log('⚠️  SAVE THIS PASSWORD! It will not be shown again.');
       console.log('='.repeat(60));
     }
 
-    console.log('Database initialized successfully');
+    console.log('✅ Database initialized successfully');
   } catch (error) {
-    console.error('Database initialization error:', error);
+    console.error('❌ Database initialization error:', error);
   }
 }
 
@@ -388,7 +391,7 @@ app.post('/api/cars/:id/dismantle', authenticateToken, async (req, res) => {
   }
 });
 
-// RENTAL ROUTES (оставляем как было)
+// RENTAL ROUTES
 app.get('/api/rentals', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
@@ -516,9 +519,7 @@ app.get('/api/rentals/calendar/:year/:month', authenticateToken, async (req, res
   }
 });
 
-// ==================== НОВЫЕ СКЛАДСКИЕ МАРШРУТЫ ====================
-
-// КАТЕГОРИИ
+// WAREHOUSE ROUTES
 app.get('/api/warehouse/categories', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
@@ -555,7 +556,6 @@ app.post('/api/warehouse/categories', authenticateToken, async (req, res) => {
   }
 });
 
-// ПОДКАТЕГОРИИ
 app.get('/api/warehouse/subcategories/:categoryId', authenticateToken, async (req, res) => {
   try {
     const categoryId = req.params.categoryId;
@@ -590,7 +590,6 @@ app.post('/api/warehouse/subcategories', authenticateToken, async (req, res) => 
   }
 });
 
-// ТОВАРЫ (PRODUCTS)
 app.get('/api/warehouse/products/:subcategoryId', authenticateToken, async (req, res) => {
   try {
     const subcategoryId = req.params.subcategoryId;
@@ -634,7 +633,6 @@ app.post('/api/warehouse/products', authenticateToken, async (req, res) => {
   }
 });
 
-// СКЛАДСКИЕ ОСТАТКИ
 app.get('/api/warehouse/inventory/:productId', authenticateToken, async (req, res) => {
   try {
     const productId = req.params.productId;
@@ -660,7 +658,6 @@ app.get('/api/warehouse/inventory/:productId', authenticateToken, async (req, re
   }
 });
 
-// ОПРИХОДОВАНИЕ (добавление остатков)
 app.post('/api/warehouse/inventory/receive', authenticateToken, async (req, res) => {
   try {
     const { product_id, source_type, source_id, quantity, purchase_price, currency, location } = req.body;
@@ -682,7 +679,6 @@ app.post('/api/warehouse/inventory/receive', authenticateToken, async (req, res)
   }
 });
 
-// ЗАКУПКИ
 app.get('/api/warehouse/procurements', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
@@ -712,7 +708,6 @@ app.post('/api/warehouse/procurements', authenticateToken, async (req, res) => {
     try {
       await client.query('BEGIN');
       
-      // Создать закупку
       const procurementResult = await client.query(
         `INSERT INTO procurements (supplier_name, invoice_number, total_amount, currency, notes, procurement_date, user_id, status) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
@@ -721,15 +716,12 @@ app.post('/api/warehouse/procurements', authenticateToken, async (req, res) => {
       
       const procurement = procurementResult.rows[0];
       
-      // Добавить позиции закупки и обновить inventory
       for (const item of items) {
-        // Добавить позицию
         await client.query(
           'INSERT INTO procurement_items (procurement_id, product_id, quantity, unit_price, currency) VALUES ($1, $2, $3, $4, $5)',
           [procurement.id, item.product_id, item.quantity, item.unit_price, currency]
         );
         
-        // Добавить в inventory
         await client.query(
           `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, currency, user_id) 
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -751,7 +743,6 @@ app.post('/api/warehouse/procurements', authenticateToken, async (req, res) => {
   }
 });
 
-// ПРОДАЖИ ЗАПЧАСТЕЙ
 app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
   try {
     const { inventory_id, product_id, quantity, sale_price, cost_price, currency, buyer_name, buyer_phone, notes } = req.body;
@@ -765,7 +756,6 @@ app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
     try {
       await client.query('BEGIN');
       
-      // Проверить наличие на складе
       if (inventory_id) {
         const inventoryCheck = await client.query(
           'SELECT quantity FROM inventory WHERE id = $1',
@@ -777,16 +767,12 @@ app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
         }
       }
       
-      // Создать продажу
       const saleResult = await client.query(
         `INSERT INTO inventory_sales (inventory_id, product_id, quantity, sale_price, cost_price, currency, buyer_name, buyer_phone, notes, user_id) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
         [inventory_id || null, product_id, quantity, sale_price, cost_price || null, currency, buyer_name || '', buyer_phone || '', notes || '', req.user.id]
       );
       
-      // Уменьшить количество на складе (через триггер автоматически)
-      
-      // Создать транзакцию для дохода
       await client.query(
         'INSERT INTO transactions (user_id, type, amount, currency, category, description) VALUES ($1, $2, $3, $4, $5, $6)',
         [req.user.id, 'income', sale_price * quantity, currency, 'parts', `Sale of ${quantity} units`]
@@ -806,7 +792,6 @@ app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
   }
 });
 
-// АНАЛИТИКА СКЛАДА
 app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
   try {
     const { start_date, end_date, category_id, subcategory_id } = req.query;
@@ -876,7 +861,6 @@ app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
     
     const result = await pool.query(query, params);
     
-    // Подсчитать итоги
     const totals = result.rows.reduce((acc, row) => {
       const curr = row.currency || 'USD';
       if (!acc[curr]) {
@@ -935,11 +919,19 @@ app.put('/api/admin/users/:id/toggle', authenticateToken, requireAdmin, async (r
   }
 });
 
+// Health check
+app.get('/', (req, res) => {
+  res.send('WGauto CRM Server is running');
+});
+
 // Start server
 initDB().then(() => {
   app.listen(port, () => {
-    console.log(`WGauto CRM Server running on port ${port}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🚀 WGauto CRM Server running on port ${port}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    if (!process.env.JWT_SECRET) {
+      console.log('⚠️  Remember to set JWT_SECRET in production!');
+    }
   });
 });
 
