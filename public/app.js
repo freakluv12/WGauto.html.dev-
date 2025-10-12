@@ -990,15 +990,20 @@ function showProductsTab(tabName) {
         document.getElementById('productsManagement').classList.add('active');
         document.querySelector('#products .tab').classList.add('active');
         loadProductsCategories();
-    } else if (tabName === 'receiving') {
-        document.getElementById('productsReceiving').classList.add('active');
-        document.querySelectorAll('#products .tab')[1].classList.add('active');
-        loadReceivingInterface();
     } else if (tabName === 'writeoffs') {
         document.getElementById('productsWriteoffs').classList.add('active');
-        document.querySelectorAll('#products .tab')[2].classList.add('active');
+        document.querySelectorAll('#products .tab')[1].classList.add('active');
         loadWriteoffs();
     }
+}
+
+// Show receiving modal
+function showReceivingModal() {
+    receivingList = [];
+    document.getElementById('receivingModal').style.display = 'block';
+    document.getElementById('receivingSearchInput').value = '';
+    document.getElementById('receivingSearchResults').innerHTML = '';
+    updateReceivingListDisplay();
 }
 
 async function loadProductsCategories() {
@@ -1117,7 +1122,7 @@ async function loadProductsList(subcategoryId) {
                 <button class="btn" onclick="loadProductsSubcategories(${currentCategoryId})">← Back to ${category.name}</button>
                 <button class="btn" onclick="loadProductsCategories()" style="margin-left: 10px;">All Categories</button>
             </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h3>${category.name} > ${subcategory.name}</h3>
                 <button class="btn" onclick="showAddProductModal()">+ Add Product</button>
             </div>
@@ -1264,33 +1269,8 @@ function quickWriteoffProduct(productId) {
 // Receiving Interface
 let receivingList = [];
 
-async function loadReceivingInterface() {
-    receivingList = [];
-    
-    let html = `
-        <div style="margin-bottom: 20px;">
-            <input type="text" id="receivingSearch" placeholder="🔍 Search product to receive..." 
-                   style="width: 100%; max-width: 500px; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;"
-                   oninput="searchProductsForReceiving()">
-        </div>
-        <div id="receivingSearchResults"></div>
-        
-        <h3 style="margin-top: 30px;">Receiving List:</h3>
-        <div id="receivingListContent">
-            <div class="loading">Add products to start receiving</div>
-        </div>
-        
-        <div style="margin-top: 20px;">
-            <button class="btn" onclick="completeReceiving()">Complete Receiving</button>
-            <button class="btn btn-danger" onclick="clearReceivingList()">Clear List</button>
-        </div>
-    `;
-    
-    document.getElementById('receivingContent').innerHTML = html;
-}
-
 async function searchProductsForReceiving() {
-    const searchTerm = document.getElementById('receivingSearch').value.toLowerCase();
+    const searchTerm = document.getElementById('receivingSearchInput').value.toLowerCase();
     
     if (searchTerm.length < 2) {
         document.getElementById('receivingSearchResults').innerHTML = '';
@@ -1305,28 +1285,161 @@ async function searchProductsForReceiving() {
         
         let html = '<div class="products-list">';
         
-        results.forEach(p => {
-            html += `
-                <div class="product-card">
-                    <div class="product-header">
-                        <div class="product-name">${p.name}</div>
-                        <div class="product-stock">${p.total_quantity || 0} pcs</div>
+        if (results.length === 0) {
+            html += '<div class="loading">No products found</div>';
+        } else {
+            results.forEach(p => {
+                html += `
+                    <div class="product-card">
+                        <div class="product-header">
+                            <div class="product-name">${p.name}</div>
+                            <div class="product-stock">${p.total_quantity || 0} pcs</div>
+                        </div>
+                        <div class="product-details">
+                            <div>${p.category_name} > ${p.subcategory_name}</div>
+                            <div>SKU: ${p.sku || 'N/A'}</div>
+                        </div>
+                        <div class="product-actions">
+                            <button class="btn" onclick="addToReceivingList(${p.id}, '${p.name.replace(/'/g, "\\'")}')">Add to List</button>
+                        </div>
                     </div>
-                    <div class="product-details">
-                        <div>${p.category_name} > ${p.subcategory_name}</div>
-                    </div>
-                    <div class="product-actions">
-                        <button class="btn" onclick="addToReceivingList(${p.id}, '${p.name.replace(/'/g, "\\'")}')">Add to List</button>
-                    </div>
-                </div>
-            `;
-        });
+                `;
+            });
+        }
         
         html += '</div>';
         
         document.getElementById('receivingSearchResults').innerHTML = html;
     } catch (error) {
         console.error('Search error:', error);
+    }
+}
+
+function showReceivingAddProductModal() {
+    // Open modal to add new product from receiving
+    currentCategoryId = null;
+    currentSubcategoryId = null;
+    loadReceivingProductCategories();
+    document.getElementById('receivingAddProductModal').style.display = 'block';
+}
+
+async function loadReceivingProductCategories() {
+    try {
+        const response = await apiCall('/api/warehouse/categories');
+        if (!response) return;
+
+        const cats = await response.json();
+        
+        let html = '<h3>Select Category</h3><div class="categories-grid">';
+        
+        cats.forEach(cat => {
+            html += `
+                <div class="category-card" onclick="loadReceivingProductSubcategories(${cat.id})">
+                    <div class="category-icon">${cat.icon || '📦'}</div>
+                    <div class="category-name">${cat.name}</div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        document.getElementById('receivingProductModalContent').innerHTML = html;
+    } catch (error) {
+        console.error('Error loading categories:', error);
+    }
+}
+
+async function loadReceivingProductSubcategories(categoryId) {
+    currentCategoryId = categoryId;
+    
+    try {
+        const response = await apiCall(`/api/warehouse/subcategories/${categoryId}`);
+        if (!response) return;
+
+        const subs = await response.json();
+        
+        let html = `
+            <button class="btn" onclick="loadReceivingProductCategories()">← Back</button>
+            <h3 style="margin-top: 15px;">Select Subcategory</h3>
+            <div class="categories-grid">
+        `;
+        
+        subs.forEach(sub => {
+            html += `
+                <div class="category-card" onclick="showReceivingProductForm(${sub.id})">
+                    <div class="category-icon">📋</div>
+                    <div class="category-name">${sub.name}</div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        document.getElementById('receivingProductModalContent').innerHTML = html;
+    } catch (error) {
+        console.error('Error loading subcategories:', error);
+    }
+}
+
+function showReceivingProductForm(subcategoryId) {
+    currentSubcategoryId = subcategoryId;
+    
+    let html = `
+        <button class="btn" onclick="loadReceivingProductSubcategories(${currentCategoryId})">← Back</button>
+        <h3 style="margin-top: 15px;">Add New Product</h3>
+        <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="receivingNewProductName">
+        </div>
+        <div class="form-group">
+            <label>Description</label>
+            <textarea id="receivingNewProductDesc" rows="2"></textarea>
+        </div>
+        <div class="form-group">
+            <label>SKU</label>
+            <input type="text" id="receivingNewProductSKU">
+        </div>
+        <div class="form-group">
+            <label>Minimum Stock Level</label>
+            <input type="number" id="receivingNewProductMinStock" value="0" min="0">
+        </div>
+        <button class="btn" onclick="createReceivingProduct()">Create & Add to Receiving List</button>
+    `;
+    
+    document.getElementById('receivingProductModalContent').innerHTML = html;
+}
+
+async function createReceivingProduct() {
+    const data = {
+        subcategory_id: currentSubcategoryId,
+        name: document.getElementById('receivingNewProductName').value,
+        description: document.getElementById('receivingNewProductDesc').value,
+        sku: document.getElementById('receivingNewProductSKU').value,
+        min_stock_level: parseInt(document.getElementById('receivingNewProductMinStock').value) || 0
+    };
+    
+    if (!data.name) {
+        alert('Name is required');
+        return;
+    }
+    
+    try {
+        const response = await apiCall('/api/warehouse/products', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        
+        if (response && response.ok) {
+            const product = await response.json();
+            
+            // Add to receiving list
+            addToReceivingList(product.id, product.name);
+            
+            closeModal('receivingAddProductModal');
+            alert('Product created and added to receiving list');
+        } else {
+            alert('Failed to create product');
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
     }
 }
 
@@ -1434,8 +1547,11 @@ async function completeReceiving() {
         
         if (response && response.ok) {
             alert('Receiving completed successfully');
-            receivingList = [];
-            loadReceivingInterface();
+            closeModal('receivingModal');
+            // Refresh products list if we're in products section
+            if (currentSubcategoryId) {
+                loadProductsList(currentSubcategoryId);
+            }
         } else {
             alert('Failed to complete receiving');
         }
@@ -1930,9 +2046,22 @@ function showPOSAddProductModal() {
 async function loadPOSCategories() {
     try {
         const response = await apiCall('/api/warehouse/categories');
-        if (!response) return;
+        if (!response) {
+            console.error('Failed to load categories');
+            return;
+        }
 
         const cats = await response.json();
+        
+        if (cats.length === 0) {
+            document.getElementById('posProductModalContent').innerHTML = `
+                <div class="loading">
+                    <p>No categories available. Please create a category first in Products section.</p>
+                    <button class="btn" onclick="closeModal('posAddProductModal')">Close</button>
+                </div>
+            `;
+            return;
+        }
         
         let html = '<h3>Select Category</h3><div class="categories-grid">';
         
@@ -1949,6 +2078,7 @@ async function loadPOSCategories() {
         document.getElementById('posProductModalContent').innerHTML = html;
     } catch (error) {
         console.error('Error loading categories:', error);
+        alert('Error loading categories: ' + error.message);
     }
 }
 
@@ -1957,9 +2087,22 @@ async function loadPOSSubcategories(categoryId) {
     
     try {
         const response = await apiCall(`/api/warehouse/subcategories/${categoryId}`);
-        if (!response) return;
+        if (!response) {
+            console.error('Failed to load subcategories');
+            return;
+        }
 
         const subs = await response.json();
+        
+        if (subs.length === 0) {
+            document.getElementById('posProductModalContent').innerHTML = `
+                <button class="btn" onclick="loadPOSCategories()">← Back</button>
+                <div class="loading" style="margin-top: 20px;">
+                    <p>No subcategories in this category. Please create a subcategory first in Products section.</p>
+                </div>
+            `;
+            return;
+        }
         
         let html = `
             <button class="btn" onclick="loadPOSCategories()">← Back</button>
@@ -1980,6 +2123,7 @@ async function loadPOSSubcategories(categoryId) {
         document.getElementById('posProductModalContent').innerHTML = html;
     } catch (error) {
         console.error('Error loading subcategories:', error);
+        alert('Error loading subcategories: ' + error.message);
     }
 }
 
@@ -1991,20 +2135,20 @@ function showPOSProductForm(subcategoryId) {
         <h3 style="margin-top: 15px;">Add New Product</h3>
         <div class="form-group">
             <label>Name</label>
-            <input type="text" id="posNewProductName">
+            <input type="text" id="posNewProductName" placeholder="e.g., Left Headlight">
         </div>
         <div class="form-group">
-            <label>Description</label>
-            <textarea id="posNewProductDesc" rows="2"></textarea>
+            <label>Description (Optional)</label>
+            <textarea id="posNewProductDesc" rows="2" placeholder="Additional details..."></textarea>
         </div>
         <div class="form-group">
-            <label>SKU</label>
-            <input type="text" id="posNewProductSKU">
+            <label>SKU (Optional)</label>
+            <input type="text" id="posNewProductSKU" placeholder="e.g., TOY-OPT-001">
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
             <div class="form-group">
                 <label>Sale Price</label>
-                <input type="number" step="0.01" id="posNewProductPrice">
+                <input type="number" step="0.01" id="posNewProductPrice" placeholder="0.00">
             </div>
             <div class="form-group">
                 <label>Currency</label>
@@ -2016,25 +2160,36 @@ function showPOSProductForm(subcategoryId) {
                 </select>
             </div>
         </div>
-        <button class="btn" onclick="createPOSProduct()">Create & Add to Cart</button>
+        <button class="btn" onclick="createPOSProduct()" style="width: 100%;">Create & Add to Cart</button>
     `;
     
     document.getElementById('posProductModalContent').innerHTML = html;
 }
 
 async function createPOSProduct() {
-    const data = {
-        subcategory_id: currentSubcategoryId,
-        name: document.getElementById('posNewProductName').value,
-        description: document.getElementById('posNewProductDesc').value,
-        sku: document.getElementById('posNewProductSKU').value,
-        min_stock_level: 0
-    };
+    const name = document.getElementById('posNewProductName').value.trim();
+    const description = document.getElementById('posNewProductDesc').value.trim();
+    const sku = document.getElementById('posNewProductSKU').value.trim();
+    const salePrice = parseFloat(document.getElementById('posNewProductPrice').value) || 0;
+    const currency = document.getElementById('posNewProductCurrency').value;
     
-    if (!data.name) {
-        alert('Name is required');
+    if (!name) {
+        alert('Product name is required');
         return;
     }
+    
+    if (!currentSubcategoryId) {
+        alert('Error: No subcategory selected');
+        return;
+    }
+    
+    const data = {
+        subcategory_id: currentSubcategoryId,
+        name: name,
+        description: description || '',
+        sku: sku || null,
+        min_stock_level: 0
+    };
     
     try {
         const response = await apiCall('/api/warehouse/products', {
@@ -2046,26 +2201,25 @@ async function createPOSProduct() {
             const product = await response.json();
             
             // Add to cart immediately
-            const salePrice = parseFloat(document.getElementById('posNewProductPrice').value) || 0;
-            const currency = document.getElementById('posNewProductCurrency').value;
-            
             cart.push({
                 productId: product.id,
                 productName: product.name,
                 quantity: 1,
-                availableQty: 999,
+                availableQty: 999, // No stock limit for newly created products
                 salePrice: salePrice,
                 currency: currency
             });
             
             closeModal('posAddProductModal');
             updatePOSDisplay();
-            alert('Product created and added to cart');
+            alert('Product created and added to cart!');
         } else {
-            alert('Failed to create product');
+            const error = await response.json();
+            alert('Failed to create product: ' + (error.error || 'Unknown error'));
         }
     } catch (error) {
-        alert('Error: ' + error.message);
+        console.error('Create product error:', error);
+        alert('Error creating product: ' + error.message);
     }
 }
 
