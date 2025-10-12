@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WGauto CRM - Warehouse Management</title>
+    <title>WGauto CRM - Sales & Inventory Management</title>
     <style>
         * {
             margin: 0;
@@ -241,6 +241,10 @@
             overflow-y: auto;
         }
 
+        .modal-content.wide {
+            max-width: 900px;
+        }
+
         .close {
             color: #aaa;
             float: right;
@@ -269,6 +273,12 @@
         .table th {
             background: #3d3d3d;
             color: #4CAF50;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .table th:hover {
+            background: #4d4d4d;
         }
 
         .tabs {
@@ -400,17 +410,7 @@
             color: #ccc;
         }
 
-        /* Warehouse specific styles */
-        .warehouse-action-bar {
-            display: none;
-            background: #3d3d3d;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-
+        /* Categories & Products */
         .categories-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -447,6 +447,134 @@
             color: #ccc;
         }
 
+        .category-count {
+            font-size: 12px;
+            color: #4CAF50;
+            margin-top: 10px;
+        }
+
+        .products-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .product-card {
+            background: #3d3d3d;
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .product-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .product-name {
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .product-stock {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            background: #4CAF50;
+        }
+
+        .product-stock.low-stock {
+            background: #f44336;
+        }
+
+        .product-details {
+            color: #ccc;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+
+        .product-actions {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+
+        /* Receiving */
+        .receiving-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .receiving-item {
+            background: #3d3d3d;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        /* POS */
+        .pos-container {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 20px;
+            min-height: 70vh;
+        }
+
+        .pos-search-area {
+            background: #3d3d3d;
+            padding: 20px;
+            border-radius: 12px;
+        }
+
+        .pos-cart-area {
+            background: #3d3d3d;
+            padding: 20px;
+            border-radius: 12px;
+        }
+
+        .cart-item {
+            background: #2d2d2d;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .cart-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .pos-search-results {
+            margin-top: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .pos-product-item {
+            background: #2d2d2d;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .pos-product-item:hover {
+            background: #3d3d3d;
+        }
+
+        .pos-total-card {
+            background: #2d2d2d;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
         @media (max-width: 768px) {
             .sidebar {
                 width: 100%;
@@ -466,13 +594,17 @@
                 grid-template-columns: repeat(2, 1fr);
             }
 
-            .cars-grid, .categories-grid {
+            .cars-grid, .categories-grid, .products-list {
                 grid-template-columns: 1fr;
             }
 
             .modal-content {
                 width: 95%;
                 margin: 10% auto;
+            }
+
+            .pos-container {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -519,24 +651,39 @@
     <div id="appScreen" class="container" style="display: none;">
         <div class="sidebar">
             <div class="logo">WGauto CRM</div>
-            <button class="nav-item active" onclick="showSection('dashboard')">📊 Dashboard</button>
+            <button class="nav-item active" onclick="showSection('analytics')">📊 Analytics</button>
             <button class="nav-item" onclick="showSection('cars')">🚗 Cars</button>
             <button class="nav-item" onclick="showSection('rentals')">📅 Rentals</button>
-            <button class="nav-item" onclick="showSection('warehouse')">📦 Warehouse</button>
+            <button class="nav-item" onclick="showSection('sales')">💰 Sales</button>
+            <button class="nav-item" onclick="showSection('products')">📦 Products</button>
+            <button class="nav-item" onclick="showSection('pos')">🛒 Point of Sale</button>
             <button class="nav-item" id="adminNav" onclick="showSection('admin')" style="display: none;">⚙️ Admin</button>
         </div>
 
         <div class="main-content">
             <div class="header">
-                <h1 id="pageTitle">Dashboard</h1>
+                <h1 id="pageTitle">Analytics</h1>
                 <div class="user-info">
                     <span id="userEmail"></span>
                     <button class="logout-btn" onclick="logout()">Logout</button>
                 </div>
             </div>
 
-            <!-- Dashboard Section -->
-            <div id="dashboard" class="section active">
+            <!-- Analytics Section -->
+            <div id="analytics" class="section active">
+                <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Start Date</label>
+                        <input type="date" id="analyticsStartDate">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>End Date</label>
+                        <input type="date" id="analyticsEndDate">
+                    </div>
+                    <div style="display: flex; align-items: flex-end;">
+                        <button class="btn" onclick="loadAnalytics()">Apply</button>
+                    </div>
+                </div>
                 <div class="stats-grid" id="statsGrid">
                     <!-- Stats will be loaded here -->
                 </div>
@@ -624,23 +771,126 @@
                 </div>
             </div>
 
-            <!-- Warehouse Section -->
-            <div id="warehouse" class="section">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <div class="section-title">Warehouse Management</div>
+            <!-- Sales Section -->
+            <div id="sales" class="section">
+                <div class="section-title">Sales</div>
+
+                <div class="tabs">
+                    <button class="tab active" onclick="showSalesTab('profitability')">Profitability</button>
+                    <button class="tab" onclick="showSalesTab('consignment')">On Consignment</button>
                 </div>
 
-                <!-- Warehouse Action Bar -->
-                <div id="warehouseActionBar" class="warehouse-action-bar">
-                    <button class="btn" onclick="showWarehouseAction('stock')">📦 Склад</button>
-                    <button class="btn" onclick="showWarehouseAction('receive')">📥 Оприходование</button>
-                    <button class="btn" onclick="showWarehouseAction('sell')">💰 Продажа</button>
-                    <button class="btn" onclick="showWarehouseAction('procurement')">🛒 Закупка</button>
-                    <button class="btn" onclick="showWarehouseAction('analytics')">📊 Аналитика</button>
+                <div id="salesProfitability" class="tab-content active">
+                    <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label>Start Date</label>
+                            <input type="date" id="profitStartDate">
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label>End Date</label>
+                            <input type="date" id="profitEndDate">
+                        </div>
+                        <div style="display: flex; align-items: flex-end;">
+                            <button class="btn" onclick="loadSalesProfitability()">Apply</button>
+                        </div>
+                    </div>
+
+                    <div class="profit-summary" id="profitabilityTotals"></div>
+
+                    <table class="table" id="profitabilityTable">
+                        <thead>
+                            <tr>
+                                <th onclick="sortProfitability('product_name')">Product</th>
+                                <th>Category</th>
+                                <th onclick="sortProfitability('total_sold')">Sold</th>
+                                <th onclick="sortProfitability('total_revenue')">Revenue</th>
+                                <th onclick="sortProfitability('total_cost')">Cost</th>
+                                <th onclick="sortProfitability('net_profit')">Net Profit</th>
+                                <th onclick="sortProfitability('profit_margin_percent')">Margin %</th>
+                                <th onclick="sortProfitability('markup_percent')">Markup %</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
                 </div>
 
-                <div id="warehouseContent">
-                    <!-- Dynamic warehouse content -->
+                <div id="salesConsignment" class="tab-content">
+                    <div class="loading">
+                        <p>Consignment feature coming soon</p>
+                        <p style="color: #ccc;">This section will show products taken for sale on consignment</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Products Section -->
+            <div id="products" class="section">
+                <div class="section-title">Products</div>
+
+                <div class="tabs">
+                    <button class="tab active" onclick="showProductsTab('products')">Products</button>
+                    <button class="tab" onclick="showProductsTab('receiving')">Receiving</button>
+                    <button class="tab" onclick="showProductsTab('writeoffs')">Write-offs</button>
+                </div>
+
+                <div id="productsManagement" class="tab-content active">
+                    <div id="productsContent">
+                        <!-- Dynamic content -->
+                    </div>
+                </div>
+
+                <div id="productsReceiving" class="tab-content">
+                    <div id="receivingContent">
+                        <!-- Receiving interface -->
+                    </div>
+                </div>
+
+                <div id="productsWriteoffs" class="tab-content">
+                    <div id="writeoffsContent">
+                        <!-- Write-offs list -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Point of Sale Section -->
+            <div id="pos" class="section">
+                <div class="section-title">Point of Sale</div>
+
+                <div class="pos-container">
+                    <div class="pos-search-area">
+                        <h3>Add Products</h3>
+                        <div style="margin-bottom: 15px;">
+                            <input type="text" id="posSearch" placeholder="🔍 Search products..." 
+                                   style="width: 100%; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;"
+                                   oninput="searchPOSProducts()">
+                        </div>
+                        <button class="btn" onclick="showPOSAddProductModal()">+ New Product</button>
+                        <div id="posSearchResults"></div>
+                    </div>
+
+                    <div class="pos-cart-area">
+                        <h3>Cart</h3>
+                        <div id="posCart" style="margin-bottom: 20px; max-height: 300px; overflow-y: auto;">
+                            <div class="loading">Cart is empty</div>
+                        </div>
+
+                        <div id="posTotals" style="margin-bottom: 20px;"></div>
+
+                        <div class="form-group">
+                            <label>Buyer Name</label>
+                            <input type="text" id="posBuyerName">
+                        </div>
+                        <div class="form-group">
+                            <label>Buyer Phone</label>
+                            <input type="tel" id="posBuyerPhone">
+                        </div>
+                        <div class="form-group">
+                            <label>Notes</label>
+                            <textarea id="posNotes" rows="2"></textarea>
+                        </div>
+
+                        <button class="btn" onclick="completeSale()" style="width: 100%; padding: 15px; font-size: 16px;">Complete Sale</button>
+                        <button class="btn btn-danger" onclick="clearCart()" style="width: 100%; margin-top: 10px;">Clear Cart</button>
+                    </div>
                 </div>
             </div>
 
@@ -838,26 +1088,24 @@
         </div>
     </div>
 
-    <!-- Warehouse Modals -->
-
     <!-- Add Category Modal -->
     <div id="addCategoryModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal('addCategoryModal')">&times;</span>
-            <h2>Добавить категорию</h2>
+            <h2>Add Category</h2>
             <div class="form-group">
-                <label>Название</label>
+                <label>Name</label>
                 <input type="text" id="categoryName" required>
             </div>
             <div class="form-group">
-                <label>Описание</label>
+                <label>Description</label>
                 <textarea id="categoryDescription" rows="3"></textarea>
             </div>
             <div class="form-group">
-                <label>Иконка (emoji)</label>
+                <label>Icon (emoji)</label>
                 <input type="text" id="categoryIcon" placeholder="📦" maxlength="2">
             </div>
-            <button class="btn" onclick="addCategory()">Добавить</button>
+            <button class="btn" onclick="addCategory()">Add</button>
         </div>
     </div>
 
@@ -865,16 +1113,16 @@
     <div id="addSubcategoryModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal('addSubcategoryModal')">&times;</span>
-            <h2>Добавить подкатегорию</h2>
+            <h2>Add Subcategory</h2>
             <div class="form-group">
-                <label>Название</label>
+                <label>Name</label>
                 <input type="text" id="subcategoryName" required>
             </div>
             <div class="form-group">
-                <label>Описание</label>
+                <label>Description</label>
                 <textarea id="subcategoryDescription" rows="3"></textarea>
             </div>
-            <button class="btn" onclick="addSubcategory()">Добавить</button>
+            <button class="btn" onclick="addSubcategory()">Add</button>
         </div>
     </div>
 
@@ -882,24 +1130,24 @@
     <div id="addProductModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal('addProductModal')">&times;</span>
-            <h2>Добавить товар</h2>
+            <h2>Add Product</h2>
             <div class="form-group">
-                <label>Название</label>
+                <label>Name</label>
                 <input type="text" id="productName" required>
             </div>
             <div class="form-group">
-                <label>Описание</label>
+                <label>Description</label>
                 <textarea id="productDescription" rows="3"></textarea>
             </div>
             <div class="form-group">
-                <label>SKU / Артикул</label>
+                <label>SKU</label>
                 <input type="text" id="productSKU">
             </div>
             <div class="form-group">
-                <label>Минимальный уровень запаса</label>
+                <label>Minimum Stock Level</label>
                 <input type="number" id="productMinStock" value="0" min="0">
             </div>
-            <button class="btn" onclick="addProduct()">Добавить товар</button>
+            <button class="btn" onclick="addProduct()">Add Product</button>
         </div>
     </div>
 
@@ -910,19 +1158,19 @@
             <h2 id="productDetailsName">Product Details</h2>
             <div style="margin-bottom: 20px; padding: 15px; background: #3d3d3d; border-radius: 8px;">
                 <p><strong>SKU:</strong> <span id="productDetailsSKU"></span></p>
-                <p><strong>Всего на складе:</strong> <span id="productDetailsTotal" style="font-weight: bold; color: #4CAF50;"></span></p>
+                <p><strong>Total in Stock:</strong> <span id="productDetailsTotal" style="font-weight: bold; color: #4CAF50;"></span></p>
             </div>
 
-            <h3>Складские позиции</h3>
+            <h3>Inventory Positions</h3>
             <table class="table" id="productInventoryTable">
                 <thead>
                     <tr>
-                        <th>Источник</th>
-                        <th>Количество</th>
-                        <th>Цена закупки</th>
-                        <th>Место</th>
-                        <th>Дата поступления</th>
-                        <th>На складе</th>
+                        <th>Source</th>
+                        <th>Quantity</th>
+                        <th>Purchase Price</th>
+                        <th>Location</th>
+                        <th>Received Date</th>
+                        <th>Days in Storage</th>
                     </tr>
                 </thead>
                 <tbody></tbody>
@@ -930,30 +1178,22 @@
         </div>
     </div>
 
-    <!-- Receive Inventory Modal -->
-    <div id="receiveInventoryModal" class="modal">
+    <!-- Quick Receive Modal -->
+    <div id="quickReceiveModal" class="modal">
         <div class="modal-content">
-            <span class="close" onclick="closeModal('receiveInventoryModal')">&times;</span>
-            <h2>Оприходование товара</h2>
-            <p style="color: #ccc; margin-bottom: 15px;">Добавьте остатки к существующему товару</p>
+            <span class="close" onclick="closeModal('quickReceiveModal')">&times;</span>
+            <h2>Quick Receive</h2>
             <div class="form-group">
-                <label>Источник поступления</label>
-                <select id="receiveSourceType" required>
-                    <option value="purchased">Закупка</option>
-                    <option value="dismantled">С разобранной машины</option>
-                </select>
+                <label>Quantity</label>
+                <input type="number" id="quickReceiveQty" min="1" value="1">
             </div>
             <div class="form-group">
-                <label>Количество</label>
-                <input type="number" id="receiveQuantity" min="1" required>
+                <label>Purchase Price (per unit)</label>
+                <input type="number" id="quickReceivePrice" step="0.01" value="0">
             </div>
             <div class="form-group">
-                <label>Цена закупки (за единицу)</label>
-                <input type="number" id="receivePurchasePrice" step="0.01">
-            </div>
-            <div class="form-group">
-                <label>Валюта</label>
-                <select id="receiveCurrency">
+                <label>Currency</label>
+                <select id="quickReceiveCurrency">
                     <option value="USD">USD ($)</option>
                     <option value="EUR">EUR (€)</option>
                     <option value="GEL">GEL (₾)</option>
@@ -961,134 +1201,55 @@
                 </select>
             </div>
             <div class="form-group">
-                <label>Место хранения</label>
-                <input type="text" id="receiveLocation" placeholder="Стеллаж A-5">
+                <label>Location</label>
+                <input type="text" id="quickReceiveLocation" placeholder="Shelf A-5">
             </div>
-            <button class="btn" onclick="receiveInventory()">Оприходовать</button>
+            <button class="btn" onclick="quickReceiveSubmit()">Receive</button>
         </div>
     </div>
 
-    <!-- Sell Inventory Modal -->
-    <div id="sellInventoryModal" class="modal">
+    <!-- Quick Write-off Modal -->
+    <div id="quickWriteoffModal" class="modal">
         <div class="modal-content">
-            <span class="close" onclick="closeModal('sellInventoryModal')">&times;</span>
-            <h2>Продажа товара</h2>
+            <span class="close" onclick="closeModal('quickWriteoffModal')">&times;</span>
+            <h2>Quick Write-off</h2>
             <div class="form-group">
-                <label>Источник товара</label>
-                <select id="sellSourceType" required>
-                    <option value="stock">Со склада</option>
-                    <option value="dismantled">С разобранной машины</option>
+                <label>Quantity</label>
+                <input type="number" id="quickWriteoffQty" min="1" value="1">
+            </div>
+            <div class="form-group">
+                <label>Reason</label>
+                <select id="quickWriteoffReason">
+                    <option value="damaged">Damaged</option>
+                    <option value="expired">Expired</option>
+                    <option value="lost">Lost</option>
+                    <option value="other">Other</option>
                 </select>
             </div>
-            <div class="form-group">
-                <label>Количество</label>
-                <input type="number" id="sellQuantity" min="1" required>
-            </div>
-            <div class="form-group">
-                <label>Цена продажи (за единицу)</label>
-                <input type="number" id="sellSalePrice" step="0.01" required>
-            </div>
-            <div class="form-group">
-                <label>Валюта</label>
-                <select id="sellCurrency" required>
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="GEL">GEL (₾)</option>
-                    <option value="RUB">RUB (₽)</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Покупатель (опционально)</label>
-                <input type="text" id="sellBuyerName">
-            </div>
-            <div class="form-group">
-                <label>Телефон покупателя</label>
-                <input type="tel" id="sellBuyerPhone">
-            </div>
-            <div class="form-group">
-                <label>Заметки</label>
-                <textarea id="sellNotes" rows="2"></textarea>
-            </div>
-            <button class="btn" onclick="sellInventory()">Продать</button>
+            <button class="btn btn-danger" onclick="quickWriteoffSubmit()">Write-off</button>
         </div>
     </div>
 
-    <!-- Procurement Modal -->
-    <div id="procurementModal" class="modal">
+    <!-- Add Write-off Modal -->
+    <div id="addWriteoffModal" class="modal">
         <div class="modal-content">
-            <span class="close" onclick="closeModal('procurementModal')">&times;</span>
-            <h2>Новая закупка</h2>
-            <div class="form-group">
-                <label>Поставщик</label>
-                <input type="text" id="procurementSupplier">
-            </div>
-            <div class="form-group">
-                <label>Номер накладной</label>
-                <input type="text" id="procurementInvoice">
-            </div>
-            <div class="form-group">
-                <label>Дата закупки</label>
-                <input type="date" id="procurementDate" required>
-            </div>
-            <div class="form-group">
-                <label>Валюта</label>
-                <select id="procurementCurrency">
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="GEL">GEL (₾)</option>
-                    <option value="RUB">RUB (₽)</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Заметки</label>
-                <textarea id="procurementNotes" rows="2"></textarea>
-            </div>
-            <p style="color: #ccc; margin: 20px 0;">Позиции закупки будут добавлены через функцию "Оприходование"</p>
-            <button class="btn" onclick="createProcurement()">Создать закупку</button>
+            <span class="close" onclick="closeModal('addWriteoffModal')">&times;</span>
+            <h2>Write-off Product</h2>
+            <p>Search for product in the Products section and use Quick Write-off button</p>
         </div>
     </div>
 
-    <!-- Analytics Modal -->
-    <div id="analyticsModal" class="modal">
-        <div class="modal-content" style="max-width: 1000px;">
-            <span class="close" onclick="closeModal('analyticsModal')">&times;</span>
-            <h2>Аналитика продаж</h2>
-            
-            <div style="display: flex; gap: 15px; margin-bottom: 20px;">
-                <div class="form-group" style="flex: 1;">
-                    <label>Начальная дата</label>
-                    <input type="date" id="analyticsStartDate">
-                </div>
-                <div class="form-group" style="flex: 1;">
-                    <label>Конечная дата</label>
-                    <input type="date" id="analyticsEndDate">
-                </div>
-                <div style="display: flex; align-items: flex-end;">
-                    <button class="btn" onclick="loadAnalytics()">Применить</button>
-                </div>
+    <!-- POS Add Product Modal -->
+    <div id="posAddProductModal" class="modal">
+        <div class="modal-content wide">
+            <span class="close" onclick="closeModal('posAddProductModal')">&times;</span>
+            <h2>Add New Product</h2>
+            <div id="posProductModalContent">
+                <!-- Dynamic content -->
             </div>
-
-            <h3>Итоги за период</h3>
-            <div class="profit-summary" id="analyticsTotals"></div>
-
-            <h3 style="margin-top: 30px;">Детализация по товарам</h3>
-            <table class="table" id="analyticsTable">
-                <thead>
-                    <tr>
-                        <th>Товар</th>
-                        <th>Категория</th>
-                        <th>Продано</th>
-                        <th>Оборот</th>
-                        <th>Себестоимость</th>
-                        <th>Прибыль</th>
-                        <th>Рентабельность</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
         </div>
     </div>
 
     <script src="app.js"></script>
 </body>
-</html>
+    </html>
