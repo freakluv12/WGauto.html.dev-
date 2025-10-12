@@ -1,7 +1,7 @@
 {
   "name": "wgauto-crm",
   "version": "2.0.0",
-  "description": "WGauto CRM System - car rental, parts warehouse and management",
+  "description": "WGauto CRM v2.0 - Complete sales, inventory and car rental management system",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -18,7 +18,10 @@
     "parts",
     "warehouse",
     "inventory",
-    "management"
+    "management",
+    "sales",
+    "pos",
+    "point-of-sale"
   ],
   "author": "WGauto",
   "license": "MIT",
