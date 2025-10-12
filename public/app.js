@@ -2040,24 +2040,40 @@ async function completeSale() {
 }
 
 function showPOSAddProductModal() {
+    console.log('Opening POS Add Product Modal');
     // Reset the modal to step 1
     currentCategoryId = null;
     currentSubcategoryId = null;
-    loadPOSCategories();
+    
+    // Clear any existing content
+    document.getElementById('posProductModalContent').innerHTML = '<div class="loading">Loading categories...</div>';
+    
+    // Show modal first
     document.getElementById('posAddProductModal').style.display = 'block';
+    
+    // Then load categories
+    loadPOSCategories();
 }
 
 async function loadPOSCategories() {
+    console.log('Loading POS categories');
     try {
         const response = await apiCall('/api/warehouse/categories');
         if (!response) {
-            console.error('Failed to load categories');
+            console.error('Failed to load categories - no response');
+            document.getElementById('posProductModalContent').innerHTML = `
+                <div class="loading">
+                    <p>Failed to load categories. Please try again.</p>
+                    <button class="btn" onclick="loadPOSCategories()">Retry</button>
+                </div>
+            `;
             return;
         }
 
         const cats = await response.json();
+        console.log('Categories loaded:', cats.length);
         
-        if (cats.length === 0) {
+        if (!cats || cats.length === 0) {
             document.getElementById('posProductModalContent').innerHTML = `
                 <div class="loading">
                     <p>No categories available. Please create a category first in Products section.</p>
@@ -2067,7 +2083,7 @@ async function loadPOSCategories() {
             return;
         }
         
-        let html = '<h3>Select Category</h3><div class="categories-grid">';
+        let html = '<h3 style="margin-bottom: 20px;">Select Category</h3><div class="categories-grid">';
         
         cats.forEach(cat => {
             html += `
@@ -2080,25 +2096,34 @@ async function loadPOSCategories() {
         
         html += '</div>';
         document.getElementById('posProductModalContent').innerHTML = html;
+        console.log('Categories displayed');
     } catch (error) {
         console.error('Error loading categories:', error);
-        alert('Error loading categories: ' + error.message);
+        document.getElementById('posProductModalContent').innerHTML = `
+            <div class="loading">
+                <p>Error loading categories: ${error.message}</p>
+                <button class="btn" onclick="loadPOSCategories()">Retry</button>
+            </div>
+        `;
     }
 }
 
 async function loadPOSSubcategories(categoryId) {
+    console.log('Loading POS subcategories for category:', categoryId);
     currentCategoryId = categoryId;
     
     try {
         const response = await apiCall(`/api/warehouse/subcategories/${categoryId}`);
         if (!response) {
             console.error('Failed to load subcategories');
+            alert('Failed to load subcategories. Please try again.');
             return;
         }
 
         const subs = await response.json();
+        console.log('Subcategories loaded:', subs.length);
         
-        if (subs.length === 0) {
+        if (!subs || subs.length === 0) {
             document.getElementById('posProductModalContent').innerHTML = `
                 <button class="btn" onclick="loadPOSCategories()">← Back</button>
                 <div class="loading" style="margin-top: 20px;">
@@ -2109,8 +2134,8 @@ async function loadPOSSubcategories(categoryId) {
         }
         
         let html = `
-            <button class="btn" onclick="loadPOSCategories()">← Back</button>
-            <h3 style="margin-top: 15px;">Select Subcategory</h3>
+            <button class="btn" onclick="loadPOSCategories()">← Back to Categories</button>
+            <h3 style="margin-top: 15px; margin-bottom: 20px;">Select Subcategory</h3>
             <div class="categories-grid">
         `;
         
@@ -2125,6 +2150,7 @@ async function loadPOSSubcategories(categoryId) {
         
         html += '</div>';
         document.getElementById('posProductModalContent').innerHTML = html;
+        console.log('Subcategories displayed');
     } catch (error) {
         console.error('Error loading subcategories:', error);
         alert('Error loading subcategories: ' + error.message);
@@ -2132,30 +2158,31 @@ async function loadPOSSubcategories(categoryId) {
 }
 
 function showPOSProductForm(subcategoryId) {
+    console.log('Showing POS product form for subcategory:', subcategoryId);
     currentSubcategoryId = subcategoryId;
     
     let html = `
-        <button class="btn" onclick="loadPOSSubcategories(${currentCategoryId})">← Back</button>
-        <h3 style="margin-top: 15px;">Add New Product</h3>
+        <button class="btn" onclick="loadPOSSubcategories(${currentCategoryId})">← Back to Subcategories</button>
+        <h3 style="margin-top: 15px; margin-bottom: 20px;">Add New Product</h3>
         <div class="form-group">
-            <label>Name</label>
-            <input type="text" id="posNewProductName" placeholder="e.g., Left Headlight">
+            <label>Product Name *</label>
+            <input type="text" id="posNewProductName" placeholder="e.g., Left Headlight" required>
         </div>
         <div class="form-group">
-            <label>Description (Optional)</label>
-            <textarea id="posNewProductDesc" rows="2" placeholder="Additional details..."></textarea>
+            <label>Description</label>
+            <textarea id="posNewProductDesc" rows="2" placeholder="Additional details (optional)"></textarea>
         </div>
         <div class="form-group">
-            <label>SKU (Optional)</label>
-            <input type="text" id="posNewProductSKU" placeholder="e.g., TOY-OPT-001">
+            <label>SKU</label>
+            <input type="text" id="posNewProductSKU" placeholder="e.g., TOY-OPT-001 (optional)">
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
             <div class="form-group">
-                <label>Sale Price</label>
-                <input type="number" step="0.01" id="posNewProductPrice" placeholder="0.00">
+                <label>Sale Price *</label>
+                <input type="number" step="0.01" id="posNewProductPrice" placeholder="0.00" required>
             </div>
             <div class="form-group">
-                <label>Currency</label>
+                <label>Currency *</label>
                 <select id="posNewProductCurrency">
                     <option value="USD">USD ($)</option>
                     <option value="EUR">EUR (€)</option>
@@ -2164,13 +2191,15 @@ function showPOSProductForm(subcategoryId) {
                 </select>
             </div>
         </div>
-        <button class="btn" onclick="createPOSProduct()" style="width: 100%;">Create & Add to Cart</button>
+        <button class="btn" onclick="createPOSProduct()" style="width: 100%; margin-top: 10px;">Create & Add to Cart</button>
     `;
     
     document.getElementById('posProductModalContent').innerHTML = html;
+    console.log('Product form displayed');
 }
 
 async function createPOSProduct() {
+    console.log('Creating POS product');
     const name = document.getElementById('posNewProductName').value.trim();
     const description = document.getElementById('posNewProductDesc').value.trim();
     const sku = document.getElementById('posNewProductSKU').value.trim();
@@ -2179,6 +2208,11 @@ async function createPOSProduct() {
     
     if (!name) {
         alert('Product name is required');
+        return;
+    }
+    
+    if (salePrice <= 0) {
+        alert('Sale price must be greater than 0');
         return;
     }
     
@@ -2203,6 +2237,7 @@ async function createPOSProduct() {
         
         if (response && response.ok) {
             const product = await response.json();
+            console.log('Product created:', product);
             
             // Add to cart immediately
             cart.push({
