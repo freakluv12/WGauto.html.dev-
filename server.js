@@ -26,6 +26,7 @@ app.use(express.static('public'));
 // Initialize database
 async function initDB() {
   try {
+    // Create users table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -37,6 +38,7 @@ async function initDB() {
       )
     `);
 
+    // Create cars table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS cars (
         id SERIAL PRIMARY KEY,
@@ -52,6 +54,7 @@ async function initDB() {
       )
     `);
 
+    // Create transactions table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS transactions (
         id SERIAL PRIMARY KEY,
@@ -68,6 +71,7 @@ async function initDB() {
       )
     `);
 
+    // Create rentals table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS rentals (
         id SERIAL PRIMARY KEY,
@@ -86,6 +90,160 @@ async function initDB() {
       )
     `);
 
+    // Create warehouse tables
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS categories (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        description TEXT,
+        icon VARCHAR(50) DEFAULT '📦',
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS subcategories (
+        id SERIAL PRIMARY KEY,
+        category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+        name VARCHAR(100) NOT NULL,
+        description TEXT,
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS products (
+        id SERIAL PRIMARY KEY,
+        subcategory_id INTEGER REFERENCES subcategories(id) ON DELETE CASCADE,
+        name VARCHAR(200) NOT NULL,
+        sku VARCHAR(100) UNIQUE,
+        description TEXT,
+        min_stock_level INTEGER DEFAULT 0,
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS inventory (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+        source_type VARCHAR(20) NOT NULL CHECK (source_type IN ('dismantled', 'purchased')),
+        source_id INTEGER,
+        quantity INTEGER NOT NULL DEFAULT 0,
+        purchase_price DECIMAL(10,2),
+        currency VARCHAR(3) DEFAULT 'USD',
+        location VARCHAR(100),
+        received_date DATE DEFAULT CURRENT_DATE,
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT check_quantity_positive CHECK (quantity >= 0)
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS inventory_sales (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER REFERENCES products(id),
+        inventory_id INTEGER REFERENCES inventory(id),
+        quantity INTEGER NOT NULL,
+        sale_price DECIMAL(10,2) NOT NULL,
+        cost_price DECIMAL(10,2),
+        currency VARCHAR(3) DEFAULT 'USD',
+        buyer_name VARCHAR(200),
+        buyer_phone VARCHAR(50),
+        notes TEXT,
+        sale_date DATE DEFAULT CURRENT_DATE,
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS writeoffs (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER REFERENCES products(id),
+        inventory_id INTEGER REFERENCES inventory(id),
+        quantity INTEGER NOT NULL,
+        reason VARCHAR(50) DEFAULT 'other',
+        notes TEXT,
+        writeoff_date DATE DEFAULT CURRENT_DATE,
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS procurements (
+        id SERIAL PRIMARY KEY,
+        supplier_name VARCHAR(200),
+        invoice_number VARCHAR(100),
+        total_amount DECIMAL(10,2),
+        currency VARCHAR(3) DEFAULT 'USD',
+        status VARCHAR(20) DEFAULT 'pending',
+        notes TEXT,
+        procurement_date DATE DEFAULT CURRENT_DATE,
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS procurement_items (
+        id SERIAL PRIMARY KEY,
+        procurement_id INTEGER REFERENCES procurements(id) ON DELETE CASCADE,
+        product_id INTEGER REFERENCES products(id),
+        quantity INTEGER NOT NULL,
+        unit_price DECIMAL(10,2) NOT NULL,
+        currency VARCHAR(3) DEFAULT 'USD',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS parts (
+        id SERIAL PRIMARY KEY,
+        car_id INTEGER REFERENCES cars(id),
+        user_id INTEGER REFERENCES users(id),
+        name VARCHAR(200) NOT NULL,
+        estimated_price DECIMAL(10,2),
+        currency VARCHAR(3),
+        cost_basis DECIMAL(10,2),
+        car_currency VARCHAR(3),
+        sale_price DECIMAL(10,2),
+        sale_currency VARCHAR(3),
+        buyer VARCHAR(200),
+        sale_notes TEXT,
+        status VARCHAR(20) DEFAULT 'available',
+        storage_location VARCHAR(100),
+        product_id INTEGER REFERENCES products(id),
+        converted_to_inventory BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        sold_at TIMESTAMP
+      )
+    `);
+
+    // Create indexes
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_categories_user ON categories(user_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_subcategories_category ON subcategories(category_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_subcategories_user ON subcategories(user_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_products_subcategory ON products(subcategory_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_products_user ON products(user_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_inventory_product ON inventory(product_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_inventory_source ON inventory(source_type, source_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_inventory_user ON inventory(user_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_sales_product ON inventory_sales(product_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_sales_date ON inventory_sales(sale_date)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_sales_user ON inventory_sales(user_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_writeoffs_product ON writeoffs(product_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_writeoffs_date ON writeoffs(writeoff_date)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_writeoffs_user ON writeoffs(user_id)');
+
+    console.log('✅ All tables created successfully');
+
     // Create admin if not exists
     const adminExists = await pool.query('SELECT id FROM users WHERE email = $1', ['admin@wgauto.com']);
     if (adminExists.rows.length === 0) {
@@ -101,6 +259,76 @@ async function initDB() {
       console.log('🔑 Password:', randomPassword);
       console.log('⚠️  SAVE THIS PASSWORD!');
       console.log('='.repeat(60));
+    }
+
+    // Create sample categories if none exist
+    const categoriesExist = await pool.query('SELECT COUNT(*) as count FROM categories');
+    if (parseInt(categoriesExist.rows[0].count) === 0) {
+      const adminUser = await pool.query('SELECT id FROM users WHERE email = $1', ['admin@wgauto.com']);
+      if (adminUser.rows.length > 0) {
+        const adminId = adminUser.rows[0].id;
+        
+        console.log('📦 Creating sample categories...');
+        
+        // Create Toyota category
+        const toyotaResult = await pool.query(
+          'INSERT INTO categories (name, description, icon, user_id) VALUES ($1, $2, $3, $4) RETURNING id',
+          ['Toyota', 'Parts for Toyota vehicles', '🚗', adminId]
+        );
+        const toyotaId = toyotaResult.rows[0].id;
+        
+        // Create Mazda category
+        const mazdaResult = await pool.query(
+          'INSERT INTO categories (name, description, icon, user_id) VALUES ($1, $2, $3, $4) RETURNING id',
+          ['Mazda', 'Parts for Mazda vehicles', '🚙', adminId]
+        );
+        const mazdaId = mazdaResult.rows[0].id;
+        
+        // Create Honda category
+        const hondaResult = await pool.query(
+          'INSERT INTO categories (name, description, icon, user_id) VALUES ($1, $2, $3, $4) RETURNING id',
+          ['Honda', 'Parts for Honda vehicles', '🚕', adminId]
+        );
+        const hondaId = hondaResult.rows[0].id;
+        
+        // Create Universal category
+        await pool.query(
+          'INSERT INTO categories (name, description, icon, user_id) VALUES ($1, $2, $3, $4)',
+          ['Universal', 'Universal parts and accessories', '🔧', adminId]
+        );
+        
+        console.log('📋 Creating sample subcategories...');
+        
+        // Create subcategories for each brand
+        const subcategories = [
+          'Optics', 'Headlights, taillights, turn signals',
+          'Engines', 'Engines and engine parts',
+          'Body Parts', 'Doors, hoods, fenders, bumpers',
+          'Electronics', 'ECU, sensors, wiring',
+          'Suspension', 'Shocks, springs, control arms',
+          'Interior', 'Seats, dashboard, trim'
+        ];
+        
+        for (let i = 0; i < subcategories.length; i += 2) {
+          const name = subcategories[i];
+          const desc = subcategories[i + 1];
+          
+          await pool.query(
+            'INSERT INTO subcategories (category_id, name, description, user_id) VALUES ($1, $2, $3, $4)',
+            [toyotaId, name, desc, adminId]
+          );
+          await pool.query(
+            'INSERT INTO subcategories (category_id, name, description, user_id) VALUES ($1, $2, $3, $4)',
+            [mazdaId, name, desc, adminId]
+          );
+          await pool.query(
+            'INSERT INTO subcategories (category_id, name, description, user_id) VALUES ($1, $2, $3, $4)',
+            [hondaId, name, desc, adminId]
+          );
+        }
+        
+        console.log('✅ Sample data created successfully');
+      }
     }
 
     console.log('✅ Database initialized successfully');
