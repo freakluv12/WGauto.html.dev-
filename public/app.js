@@ -1757,6 +1757,10 @@ async function addSubcategory() {
 }
 
 function showAddProductModal() {
+    if (!currentSubcategoryId) {
+        alert('Please select a subcategory first');
+        return;
+    }
     document.getElementById('addProductModal').style.display = 'block';
 }
 
