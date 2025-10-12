@@ -824,23 +824,19 @@
 
             <!-- Products Section -->
             <div id="products" class="section">
-                <div class="section-title">Products</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div class="section-title">Products</div>
+                    <button class="btn" onclick="showReceivingModal()">📥 Receive Inventory</button>
+                </div>
 
                 <div class="tabs">
                     <button class="tab active" onclick="showProductsTab('products')">Products</button>
-                    <button class="tab" onclick="showProductsTab('receiving')">Receiving</button>
                     <button class="tab" onclick="showProductsTab('writeoffs')">Write-offs</button>
                 </div>
 
                 <div id="productsManagement" class="tab-content active">
                     <div id="productsContent">
                         <!-- Dynamic content -->
-                    </div>
-                </div>
-
-                <div id="productsReceiving" class="tab-content">
-                    <div id="receivingContent">
-                        <!-- Receiving interface -->
                     </div>
                 </div>
 
@@ -1243,8 +1239,46 @@
     <div id="posAddProductModal" class="modal">
         <div class="modal-content wide">
             <span class="close" onclick="closeModal('posAddProductModal')">&times;</span>
-            <h2>Add New Product</h2>
+            <h2>Add New Product from POS</h2>
             <div id="posProductModalContent">
+                <!-- Dynamic content -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Receiving Modal -->
+    <div id="receivingModal" class="modal">
+        <div class="modal-content wide">
+            <span class="close" onclick="closeModal('receivingModal')">&times;</span>
+            <h2>Receive Inventory</h2>
+            
+            <div style="margin-bottom: 20px;">
+                <input type="text" id="receivingSearchInput" placeholder="🔍 Search product to receive..." 
+                       style="width: 100%; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;"
+                       oninput="searchProductsForReceiving()">
+                <button class="btn" onclick="showReceivingAddProductModal()" style="margin-top: 10px;">+ New Product</button>
+            </div>
+            
+            <div id="receivingSearchResults" style="max-height: 300px; overflow-y: auto; margin-bottom: 20px;"></div>
+            
+            <h3>Receiving List:</h3>
+            <div id="receivingListContent" style="max-height: 400px; overflow-y: auto; margin-bottom: 20px;">
+                <div class="loading">Add products to start receiving</div>
+            </div>
+            
+            <div style="display: flex; gap: 10px;">
+                <button class="btn" onclick="completeReceiving()" style="flex: 1;">Complete Receiving</button>
+                <button class="btn btn-danger" onclick="clearReceivingList()">Clear List</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Receiving Add Product Modal -->
+    <div id="receivingAddProductModal" class="modal">
+        <div class="modal-content wide">
+            <span class="close" onclick="closeModal('receivingAddProductModal')">&times;</span>
+            <h2>Add New Product</h2>
+            <div id="receivingProductModalContent">
                 <!-- Dynamic content -->
             </div>
         </div>
@@ -1252,4 +1286,4 @@
 
     <script src="app.js"></script>
 </body>
-    </html>
+        </html>
