@@ -1,4 +1,4 @@
-// WGauto CRM - Складская система
+// WGauto CRM - Updated version with Sales & Inventory Management
 // Global variables
 let currentUser = null;
 let currentCarId = null;
@@ -15,6 +15,9 @@ let categories = [];
 let subcategories = [];
 let products = [];
 let inventory = [];
+
+// Cart for POS
+let cart = [];
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
@@ -200,17 +203,19 @@ function showSection(sectionName) {
     });
     
     const titles = {
-        dashboard: 'Dashboard',
+        analytics: 'Analytics',
         cars: 'Cars',
         rentals: 'Rentals',
-        warehouse: 'Warehouse',
+        sales: 'Sales',
+        products: 'Products',
+        pos: 'Point of Sale',
         admin: 'Admin Panel'
     };
     document.getElementById('pageTitle').textContent = titles[sectionName];
 
     switch(sectionName) {
-        case 'dashboard':
-            loadDashboard();
+        case 'analytics':
+            loadAnalytics();
             break;
         case 'cars':
             loadCars();
@@ -218,8 +223,14 @@ function showSection(sectionName) {
         case 'rentals':
             loadRentals();
             break;
-        case 'warehouse':
-            loadWarehouse();
+        case 'sales':
+            loadSalesSection();
+            break;
+        case 'products':
+            loadProductsSection();
+            break;
+        case 'pos':
+            loadPOS();
             break;
         case 'admin':
             loadUsers();
@@ -227,10 +238,19 @@ function showSection(sectionName) {
     }
 }
 
-// Dashboard
-async function loadDashboard() {
+// ==================== ANALYTICS ====================
+async function loadAnalytics() {
+    const startDate = document.getElementById('analyticsStartDate').value;
+    const endDate = document.getElementById('analyticsEndDate').value;
+    
     try {
-        const response = await apiCall('/api/stats/dashboard');
+        let url = '/api/stats/dashboard';
+        const params = new URLSearchParams();
+        if (startDate) params.append('start_date', startDate);
+        if (endDate) params.append('end_date', endDate);
+        if (params.toString()) url += '?' + params.toString();
+        
+        const response = await apiCall(url);
         if (!response) return;
 
         const data = await response.json();
@@ -286,12 +306,12 @@ async function loadDashboard() {
         document.getElementById('statsGrid').innerHTML = statsHTML;
 
     } catch (error) {
-        console.error('Dashboard load error:', error);
-        document.getElementById('statsGrid').innerHTML = '<div class="loading">Error loading dashboard data</div>';
+        console.error('Analytics load error:', error);
+        document.getElementById('statsGrid').innerHTML = '<div class="loading">Error loading analytics data</div>';
     }
 }
 
-// Cars functions (kept same as before)
+// ==================== CARS (unchanged) ====================
 async function loadCars() {
     try {
         const response = await apiCall('/api/cars');
@@ -587,7 +607,7 @@ function showCarTab(tabName) {
     document.querySelectorAll('#carDetailsModal .tab')[tabMap[tabName]].classList.add('active');
 }
 
-// Rentals (kept same)
+// ==================== RENTALS (unchanged) ====================
 async function loadRentals() {
     try {
         const response = await apiCall('/api/rentals');
@@ -748,7 +768,7 @@ async function completeRental(rentalId) {
         if (response && response.ok) {
             alert('Rental completed successfully');
             loadRentals();
-            loadDashboard();
+            loadAnalytics();
         } else {
             alert('Failed to complete rental');
         }
@@ -824,21 +844,167 @@ function changeMonth(direction) {
     loadRentalCalendar();
 }
 
-// ==================== WAREHOUSE FUNCTIONS ====================
+// ==================== SALES SECTION ====================
+function loadSalesSection() {
+    showSalesTab('profitability');
+}
 
-async function loadWarehouse() {
-    // Show warehouse action bar
-    document.getElementById('warehouseActionBar').style.display = 'flex';
+function showSalesTab(tabName) {
+    const tabContents = document.querySelectorAll('#sales .tab-content');
+    tabContents.forEach(content => content.classList.remove('active'));
     
-    // Load categories
-    await loadCategories();
+    const tabButtons = document.querySelectorAll('#sales .tab');
+    tabButtons.forEach(button => button.classList.remove('active'));
+    
+    if (tabName === 'profitability') {
+        document.getElementById('salesProfitability').classList.add('active');
+        document.querySelector('#sales .tab').classList.add('active');
+        loadSalesProfitability();
+    } else if (tabName === 'consignment') {
+        document.getElementById('salesConsignment').classList.add('active');
+        document.querySelectorAll('#sales .tab')[1].classList.add('active');
+    }
 }
 
-function hideWarehouseActionBar() {
-    document.getElementById('warehouseActionBar').style.display = 'none';
+let profitabilityData = [];
+let profitabilitySortColumn = 'net_profit';
+let profitabilitySortDirection = 'desc';
+
+async function loadSalesProfitability() {
+    const startDate = document.getElementById('profitStartDate').value;
+    const endDate = document.getElementById('profitEndDate').value;
+    
+    try {
+        let url = '/api/warehouse/analytics?';
+        if (startDate) url += `start_date=${startDate}&`;
+        if (endDate) url += `end_date=${endDate}`;
+        
+        const response = await apiCall(url);
+        if (!response) return;
+        
+        const data = await response.json();
+        profitabilityData = data.items;
+        
+        displayProfitability();
+        displayProfitabilityTotals(data.totals);
+        
+    } catch (error) {
+        console.error('Profitability error:', error);
+    }
 }
 
-async function loadCategories() {
+function sortProfitability(column) {
+    if (profitabilitySortColumn === column) {
+        profitabilitySortDirection = profitabilitySortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        profitabilitySortColumn = column;
+        profitabilitySortDirection = 'desc';
+    }
+    
+    displayProfitability();
+}
+
+function displayProfitability() {
+    const sorted = [...profitabilityData].sort((a, b) => {
+        let aVal = parseFloat(a[profitabilitySortColumn]) || 0;
+        let bVal = parseFloat(b[profitabilitySortColumn]) || 0;
+        
+        return profitabilitySortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+    
+    let html = '';
+    if (sorted.length === 0) {
+        html = '<tr><td colspan="8">No sales data</td></tr>';
+    } else {
+        sorted.forEach(item => {
+            const profitMargin = parseFloat(item.profit_margin_percent || 0).toFixed(2);
+            const markup = parseFloat(item.markup_percent || 0).toFixed(2);
+            
+            html += `
+                <tr>
+                    <td>${item.product_name}</td>
+                    <td>${item.category_name} > ${item.subcategory_name}</td>
+                    <td>${item.total_sold}</td>
+                    <td>${getCurrencySymbol(item.currency)}${parseFloat(item.total_revenue || 0).toFixed(2)}</td>
+                    <td>${getCurrencySymbol(item.currency)}${parseFloat(item.total_cost || 0).toFixed(2)}</td>
+                    <td class="${parseFloat(item.net_profit) >= 0 ? 'positive' : 'negative'}">
+                        ${getCurrencySymbol(item.currency)}${parseFloat(item.net_profit || 0).toFixed(2)}
+                    </td>
+                    <td>${profitMargin}%</td>
+                    <td>${markup}%</td>
+                </tr>
+            `;
+        });
+    }
+    
+    document.querySelector('#profitabilityTable tbody').innerHTML = html;
+}
+
+function displayProfitabilityTotals(totals) {
+    let html = '';
+    if (totals && totals.length > 0) {
+        totals.forEach(total => {
+            html += `
+                <div class="profit-card">
+                    <div class="currency-label">${total.currency} Items Sold</div>
+                    <div class="amount">${total.total_sold} pcs</div>
+                </div>
+                <div class="profit-card">
+                    <div class="currency-label">${total.currency} Revenue</div>
+                    <div class="amount positive">${getCurrencySymbol(total.currency)}${parseFloat(total.total_revenue).toFixed(2)}</div>
+                </div>
+                <div class="profit-card">
+                    <div class="currency-label">${total.currency} Cost</div>
+                    <div class="amount">${getCurrencySymbol(total.currency)}${parseFloat(total.total_cost).toFixed(2)}</div>
+                </div>
+                <div class="profit-card">
+                    <div class="currency-label">${total.currency} Net Profit</div>
+                    <div class="amount ${parseFloat(total.net_profit) >= 0 ? 'positive' : 'negative'}">
+                        ${getCurrencySymbol(total.currency)}${parseFloat(total.net_profit).toFixed(2)}
+                    </div>
+                </div>
+                <div class="profit-card">
+                    <div class="currency-label">${total.currency} Margin</div>
+                    <div class="amount">${total.profit_margin_percent}%</div>
+                </div>
+            `;
+        });
+    }
+    
+    document.getElementById('profitabilityTotals').innerHTML = html;
+}
+
+// ==================== PRODUCTS SECTION ====================
+function loadProductsSection() {
+    showProductsTab('products');
+}
+
+function showProductsTab(tabName) {
+    const tabContents = document.querySelectorAll('#products .tab-content');
+    tabContents.forEach(content => content.classList.remove('active'));
+    
+    const tabButtons = document.querySelectorAll('#products .tab');
+    tabButtons.forEach(button => button.classList.remove('active'));
+    
+    if (tabName === 'products') {
+        document.getElementById('productsManagement').classList.add('active');
+        document.querySelector('#products .tab').classList.add('active');
+        loadProductsCategories();
+    } else if (tabName === 'receiving') {
+        document.getElementById('productsReceiving').classList.add('active');
+        document.querySelectorAll('#products .tab')[1].classList.add('active');
+        loadReceivingInterface();
+    } else if (tabName === 'writeoffs') {
+        document.getElementById('productsWriteoffs').classList.add('active');
+        document.querySelectorAll('#products .tab')[2].classList.add('active');
+        loadWriteoffs();
+    }
+}
+
+async function loadProductsCategories() {
+    currentCategoryId = null;
+    currentSubcategoryId = null;
+    
     try {
         const response = await apiCall('/api/warehouse/categories');
         if (!response) return;
@@ -849,41 +1015,44 @@ async function loadCategories() {
         if (categories.length === 0) {
             html = `
                 <div class="loading">
-                    <p>No categories yet. Create your first category to get started.</p>
+                    <p>No categories yet. Create your first category.</p>
                     <button class="btn" onclick="showAddCategoryModal()">+ Add Category</button>
                 </div>
             `;
         } else {
-            html = categories.map(cat => `
-                <div class="category-card" onclick="loadSubcategories(${cat.id})">
-                    <div class="category-icon">${cat.icon || '📦'}</div>
-                    <div class="category-name">${cat.name}</div>
-                    <div class="category-desc">${cat.description || ''}</div>
+            html = `
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                    <input type="text" id="productsGlobalSearch" placeholder="🔍 Search all products..." 
+                           style="flex: 1; max-width: 400px; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;"
+                           oninput="searchAllProducts()">
+                    <button class="btn" onclick="showAddCategoryModal()">+ Add Category</button>
                 </div>
-            `).join('');
+                <div class="categories-grid">
+            `;
+            
+            categories.forEach(cat => {
+                html += `
+                    <div class="category-card" onclick="loadProductsSubcategories(${cat.id})">
+                        <div class="category-icon">${cat.icon || '📦'}</div>
+                        <div class="category-name">${cat.name}</div>
+                        <div class="category-desc">${cat.description || ''}</div>
+                        <div class="category-count">${cat.product_count || 0} products</div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
         }
         
-        document.getElementById('warehouseContent').innerHTML = `
-            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-                <h3>Категории</h3>
-                <button class="btn" onclick="showAddCategoryModal()">+ Добавить категорию</button>
-            </div>
-            <div class="categories-grid">${html}</div>
-        `;
-        
-        // Reset navigation
-        currentCategoryId = null;
-        currentSubcategoryId = null;
-        currentProductId = null;
+        document.getElementById('productsContent').innerHTML = html;
     } catch (error) {
         console.error('Load categories error:', error);
     }
 }
 
-async function loadSubcategories(categoryId) {
+async function loadProductsSubcategories(categoryId) {
     currentCategoryId = categoryId;
     currentSubcategoryId = null;
-    currentProductId = null;
     
     try {
         const response = await apiCall(`/api/warehouse/subcategories/${categoryId}`);
@@ -892,42 +1061,48 @@ async function loadSubcategories(categoryId) {
         subcategories = await response.json();
         const category = categories.find(c => c.id === categoryId);
         
-        let html = '';
+        let html = `
+            <div style="margin-bottom: 20px;">
+                <button class="btn" onclick="loadProductsCategories()">← Back to Categories</button>
+                <button class="btn" onclick="loadProductsCategories()" style="margin-left: 10px;">All Categories</button>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                <h3>${category.name} - Subcategories</h3>
+                <button class="btn" onclick="showAddSubcategoryModal()">+ Add Subcategory</button>
+            </div>
+        `;
+        
         if (subcategories.length === 0) {
-            html = `
+            html += `
                 <div class="loading">
-                    <p>No subcategories in ${category.name}. Add one to continue.</p>
-                    <button class="btn" onclick="showAddSubcategoryModal()">+ Add Subcategory</button>
+                    <p>No subcategories in ${category.name}</p>
                 </div>
             `;
         } else {
-            html = subcategories.map(sub => `
-                <div class="category-card" onclick="loadProducts(${sub.id})">
-                    <div class="category-icon">📋</div>
-                    <div class="category-name">${sub.name}</div>
-                    <div class="category-desc">${sub.description || ''}</div>
-                </div>
-            `).join('');
+            html += '<div class="categories-grid">';
+            
+            subcategories.forEach(sub => {
+                html += `
+                    <div class="category-card" onclick="loadProductsList(${sub.id})">
+                        <div class="category-icon">📋</div>
+                        <div class="category-name">${sub.name}</div>
+                        <div class="category-desc">${sub.description || ''}</div>
+                        <div class="category-count">${sub.product_count || 0} products</div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
         }
         
-        document.getElementById('warehouseContent').innerHTML = `
-            <div style="margin-bottom: 20px;">
-                <button class="btn" onclick="loadCategories()">← Назад к категориям</button>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-                <h3>${category.name} - Подкатегории</h3>
-                <button class="btn" onclick="showAddSubcategoryModal()">+ Добавить подкатегорию</button>
-            </div>
-            <div class="categories-grid">${html}</div>
-        `;
+        document.getElementById('productsContent').innerHTML = html;
     } catch (error) {
         console.error('Load subcategories error:', error);
     }
 }
 
-async function loadProducts(subcategoryId) {
+async function loadProductsList(subcategoryId) {
     currentSubcategoryId = subcategoryId;
-    currentProductId = null;
     
     try {
         const response = await apiCall(`/api/warehouse/products/${subcategoryId}`);
@@ -937,59 +1112,105 @@ async function loadProducts(subcategoryId) {
         const subcategory = subcategories.find(s => s.id === subcategoryId);
         const category = categories.find(c => c.id === currentCategoryId);
         
-        let html = '';
-        if (products.length === 0) {
-            html = `
-                <div class="loading">
-                    <p>No products in ${subcategory.name}. Add one to start tracking inventory.</p>
-                    <button class="btn" onclick="showAddProductModal()">+ Add Product</button>
-                </div>
-            `;
-        } else {
-            html = `
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Название</th>
-                            <th>SKU</th>
-                            <th>Остаток</th>
-                            <th>Мин. уровень</th>
-                            <th>Дата первого поступления</th>
-                            <th>Действия</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${products.map(p => `
-                            <tr>
-                                <td>${p.name}</td>
-                                <td>${p.sku || 'N/A'}</td>
-                                <td style="font-weight: bold; color: ${p.total_quantity > p.min_stock_level ? '#4CAF50' : '#f44336'}">
-                                    ${p.total_quantity || 0}
-                                </td>
-                                <td>${p.min_stock_level}</td>
-                                <td>${p.first_received ? new Date(p.first_received).toLocaleDateString() : 'N/A'}</td>
-                                <td>
-                                    <button class="btn" onclick="showProductDetails(${p.id})">Детали</button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
-        }
-        
-        document.getElementById('warehouseContent').innerHTML = `
+        let html = `
             <div style="margin-bottom: 20px;">
-                <button class="btn" onclick="loadSubcategories(${currentCategoryId})">← Назад к ${category.name}</button>
+                <button class="btn" onclick="loadProductsSubcategories(${currentCategoryId})">← Back to ${category.name}</button>
+                <button class="btn" onclick="loadProductsCategories()" style="margin-left: 10px;">All Categories</button>
             </div>
             <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
                 <h3>${category.name} > ${subcategory.name}</h3>
-                <button class="btn" onclick="showAddProductModal()">+ Добавить товар</button>
+                <button class="btn" onclick="showAddProductModal()">+ Add Product</button>
             </div>
-            ${html}
         `;
+        
+        if (products.length === 0) {
+            html += '<div class="loading"><p>No products yet</p></div>';
+        } else {
+            html += `
+                <div class="products-list">
+            `;
+            
+            products.forEach(p => {
+                const lowStock = parseInt(p.total_quantity || 0) <= parseInt(p.min_stock_level);
+                html += `
+                    <div class="product-card">
+                        <div class="product-header">
+                            <div class="product-name">${p.name}</div>
+                            <div class="product-stock ${lowStock ? 'low-stock' : ''}">${p.total_quantity || 0} pcs</div>
+                        </div>
+                        <div class="product-details">
+                            <div>SKU: ${p.sku || 'N/A'}</div>
+                            <div>Min: ${p.min_stock_level} pcs</div>
+                        </div>
+                        <div class="product-actions">
+                            <button class="btn" onclick="showProductDetails(${p.id})">Details</button>
+                            <button class="btn" onclick="quickReceiveProduct(${p.id})">Receive</button>
+                            <button class="btn btn-danger" onclick="quickWriteoffProduct(${p.id})">Write-off</button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+        }
+        
+        document.getElementById('productsContent').innerHTML = html;
     } catch (error) {
         console.error('Load products error:', error);
+    }
+}
+
+async function searchAllProducts() {
+    const searchTerm = document.getElementById('productsGlobalSearch').value.toLowerCase();
+    
+    if (searchTerm.length < 2) {
+        loadProductsCategories();
+        return;
+    }
+    
+    try {
+        const response = await apiCall(`/api/warehouse/products/search?q=${encodeURIComponent(searchTerm)}`);
+        if (!response) return;
+        
+        const results = await response.json();
+        
+        let html = `
+            <div style="margin-bottom: 20px;">
+                <button class="btn" onclick="loadProductsCategories()">← Back to Categories</button>
+            </div>
+            <h3>Search Results for "${searchTerm}"</h3>
+        `;
+        
+        if (results.length === 0) {
+            html += '<div class="loading"><p>No products found</p></div>';
+        } else {
+            html += '<div class="products-list">';
+            
+            results.forEach(p => {
+                const lowStock = parseInt(p.total_quantity || 0) <= parseInt(p.min_stock_level);
+                html += `
+                    <div class="product-card">
+                        <div class="product-header">
+                            <div class="product-name">${p.name}</div>
+                            <div class="product-stock ${lowStock ? 'low-stock' : ''}">${p.total_quantity || 0} pcs</div>
+                        </div>
+                        <div class="product-details">
+                            <div>${p.category_name} > ${p.subcategory_name}</div>
+                            <div>SKU: ${p.sku || 'N/A'}</div>
+                        </div>
+                        <div class="product-actions">
+                            <button class="btn" onclick="showProductDetails(${p.id})">Details</button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+        }
+        
+        document.getElementById('productsContent').innerHTML = html;
+    } catch (error) {
+        console.error('Search error:', error);
     }
 }
 
@@ -997,62 +1218,357 @@ async function showProductDetails(productId) {
     currentProductId = productId;
     
     try {
-        // Load inventory for this product
         const response = await apiCall(`/api/warehouse/inventory/${productId}`);
         if (!response) return;
 
         inventory = await response.json();
-        const product = products.find(p => p.id === productId);
+        const product = products.find(p => p.id === productId) || inventory[0];
+        
+        document.getElementById('productDetailsName').textContent = product.name || 'Product Details';
+        document.getElementById('productDetailsSKU').textContent = product.sku || 'N/A';
+        document.getElementById('productDetailsTotal').textContent = product.total_quantity || 0;
         
         let inventoryHTML = '';
         if (inventory.length === 0) {
-            inventoryHTML = '<tr><td colspan="6">Нет остатков на складе</td></tr>';
+            inventoryHTML = '<tr><td colspan="6">No inventory</td></tr>';
         } else {
             inventoryHTML = inventory.map(inv => `
                 <tr>
-                    <td>${inv.source_name}</td>
+                    <td>${inv.source_name || 'N/A'}</td>
                     <td>${inv.quantity}</td>
                     <td>${inv.purchase_price ? getCurrencySymbol(inv.currency) + inv.purchase_price : 'N/A'}</td>
                     <td>${inv.location || 'N/A'}</td>
                     <td>${new Date(inv.received_date).toLocaleDateString()}</td>
-                    <td>${inv.days_in_storage} дней</td>
+                    <td>${inv.days_in_storage} days</td>
                 </tr>
             `).join('');
         }
         
-        document.getElementById('productDetailsName').textContent = product.name;
-        document.getElementById('productDetailsSKU').textContent = product.sku || 'N/A';
-        document.getElementById('productDetailsTotal').textContent = product.total_quantity || 0;
-        
         document.querySelector('#productInventoryTable tbody').innerHTML = inventoryHTML;
-        
         document.getElementById('productDetailsModal').style.display = 'block';
     } catch (error) {
         console.error('Show product details error:', error);
     }
 }
 
-// Warehouse action bar functions
-function showWarehouseAction(action) {
-    switch(action) {
-        case 'receive':
-            showReceiveInventoryModal();
-            break;
-        case 'sell':
-            showSellInventoryModal();
-            break;
-        case 'procurement':
-            showProcurementModal();
-            break;
-        case 'analytics':
-            showAnalyticsModal();
-            break;
-        case 'stock':
-            loadCategories();
-            break;
+function quickReceiveProduct(productId) {
+    currentProductId = productId;
+    showQuickReceiveModal();
+}
+
+function quickWriteoffProduct(productId) {
+    currentProductId = productId;
+    showQuickWriteoffModal();
+}
+
+// Receiving Interface
+let receivingList = [];
+
+async function loadReceivingInterface() {
+    receivingList = [];
+    
+    let html = `
+        <div style="margin-bottom: 20px;">
+            <input type="text" id="receivingSearch" placeholder="🔍 Search product to receive..." 
+                   style="width: 100%; max-width: 500px; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;"
+                   oninput="searchProductsForReceiving()">
+        </div>
+        <div id="receivingSearchResults"></div>
+        
+        <h3 style="margin-top: 30px;">Receiving List:</h3>
+        <div id="receivingListContent">
+            <div class="loading">Add products to start receiving</div>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button class="btn" onclick="completeReceiving()">Complete Receiving</button>
+            <button class="btn btn-danger" onclick="clearReceivingList()">Clear List</button>
+        </div>
+    `;
+    
+    document.getElementById('receivingContent').innerHTML = html;
+}
+
+async function searchProductsForReceiving() {
+    const searchTerm = document.getElementById('receivingSearch').value.toLowerCase();
+    
+    if (searchTerm.length < 2) {
+        document.getElementById('receivingSearchResults').innerHTML = '';
+        return;
+    }
+    
+    try {
+        const response = await apiCall(`/api/warehouse/products/search?q=${encodeURIComponent(searchTerm)}`);
+        if (!response) return;
+        
+        const results = await response.json();
+        
+        let html = '<div class="products-list">';
+        
+        results.forEach(p => {
+            html += `
+                <div class="product-card">
+                    <div class="product-header">
+                        <div class="product-name">${p.name}</div>
+                        <div class="product-stock">${p.total_quantity || 0} pcs</div>
+                    </div>
+                    <div class="product-details">
+                        <div>${p.category_name} > ${p.subcategory_name}</div>
+                    </div>
+                    <div class="product-actions">
+                        <button class="btn" onclick="addToReceivingList(${p.id}, '${p.name.replace(/'/g, "\\'")}')">Add to List</button>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        
+        document.getElementById('receivingSearchResults').innerHTML = html;
+    } catch (error) {
+        console.error('Search error:', error);
     }
 }
 
+function addToReceivingList(productId, productName) {
+    if (receivingList.find(item => item.productId === productId)) {
+        alert('Product already in receiving list');
+        return;
+    }
+    
+    receivingList.push({
+        productId: productId,
+        productName: productName,
+        quantity: 1,
+        price: 0,
+        currency: 'USD',
+        location: ''
+    });
+    
+    updateReceivingListDisplay();
+}
+
+function updateReceivingListDisplay() {
+    if (receivingList.length === 0) {
+        document.getElementById('receivingListContent').innerHTML = '<div class="loading">Add products to start receiving</div>';
+        return;
+    }
+    
+    let html = '<div class="receiving-list">';
+    
+    receivingList.forEach((item, index) => {
+        html += `
+            <div class="receiving-item">
+                <div style="font-weight: bold;">${item.productName}</div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 10px;">
+                    <div>
+                        <label>Quantity:</label>
+                        <input type="number" value="${item.quantity}" min="1" 
+                               onchange="updateReceivingItem(${index}, 'quantity', this.value)"
+                               style="width: 100%; padding: 5px; background: #3d3d3d; border: 1px solid #555; color: #fff; border-radius: 4px;">
+                    </div>
+                    <div>
+                        <label>Price:</label>
+                        <input type="number" step="0.01" value="${item.price}" min="0"
+                               onchange="updateReceivingItem(${index}, 'price', this.value)"
+                               style="width: 100%; padding: 5px; background: #3d3d3d; border: 1px solid #555; color: #fff; border-radius: 4px;">
+                    </div>
+                    <div>
+                        <label>Currency:</label>
+                        <select onchange="updateReceivingItem(${index}, 'currency', this.value)"
+                                style="width: 100%; padding: 5px; background: #3d3d3d; border: 1px solid #555; color: #fff; border-radius: 4px;">
+                            <option value="USD" ${item.currency === 'USD' ? 'selected' : ''}>USD ($)</option>
+                            <option value="EUR" ${item.currency === 'EUR' ? 'selected' : ''}>EUR (€)</option>
+                            <option value="GEL" ${item.currency === 'GEL' ? 'selected' : ''}>GEL (₾)</option>
+                            <option value="RUB" ${item.currency === 'RUB' ? 'selected' : ''}>RUB (₽)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Location:</label>
+                        <input type="text" value="${item.location}" placeholder="A-5"
+                               onchange="updateReceivingItem(${index}, 'location', this.value)"
+                               style="width: 100%; padding: 5px; background: #3d3d3d; border: 1px solid #555; color: #fff; border-radius: 4px;">
+                    </div>
+                </div>
+                <div style="margin-top: 10px;">
+                    <strong>Total: ${getCurrencySymbol(item.currency)}${(item.quantity * item.price).toFixed(2)}</strong>
+                    <button class="btn btn-danger" style="float: right;" onclick="removeFromReceivingList(${index})">Remove</button>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    
+    document.getElementById('receivingListContent').innerHTML = html;
+}
+
+function updateReceivingItem(index, field, value) {
+    receivingList[index][field] = field === 'quantity' || field === 'price' ? parseFloat(value) : value;
+    updateReceivingListDisplay();
+}
+
+function removeFromReceivingList(index) {
+    receivingList.splice(index, 1);
+    updateReceivingListDisplay();
+}
+
+function clearReceivingList() {
+    if (confirm('Clear all items from receiving list?')) {
+        receivingList = [];
+        updateReceivingListDisplay();
+    }
+}
+
+async function completeReceiving() {
+    if (receivingList.length === 0) {
+        alert('Add products to receiving list first');
+        return;
+    }
+    
+    try {
+        const response = await apiCall('/api/warehouse/inventory/receive/batch', {
+            method: 'POST',
+            body: JSON.stringify({ items: receivingList })
+        });
+        
+        if (response && response.ok) {
+            alert('Receiving completed successfully');
+            receivingList = [];
+            loadReceivingInterface();
+        } else {
+            alert('Failed to complete receiving');
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+// Write-offs
+async function loadWriteoffs() {
+    try {
+        const response = await apiCall('/api/warehouse/writeoffs');
+        if (!response) return;
+        
+        const writeoffs = await response.json();
+        
+        let html = `
+            <div style="margin-bottom: 20px;">
+                <button class="btn" onclick="showAddWriteoffModal()">+ Write-off Product</button>
+            </div>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Product</th>
+                        <th>Quantity</th>
+                        <th>Value</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        
+        if (writeoffs.length === 0) {
+            html += '<tr><td colspan="5">No write-offs</td></tr>';
+        } else {
+            writeoffs.forEach(w => {
+                html += `
+                    <tr>
+                        <td>${new Date(w.writeoff_date).toLocaleDateString()}</td>
+                        <td>${w.product_name}</td>
+                        <td>${w.quantity} pcs</td>
+                        <td>${getCurrencySymbol(w.currency)}${parseFloat(w.total_value || 0).toFixed(2)}</td>
+                        <td>${w.reason || 'N/A'}</td>
+                    </tr>
+                `;
+            });
+        }
+        
+        html += '</tbody></table>';
+        
+        document.getElementById('writeoffsContent').innerHTML = html;
+    } catch (error) {
+        console.error('Load writeoffs error:', error);
+    }
+}
+
+// Quick modals
+function showQuickReceiveModal() {
+    document.getElementById('quickReceiveModal').style.display = 'block';
+}
+
+function showQuickWriteoffModal() {
+    document.getElementById('quickWriteoffModal').style.display = 'block';
+}
+
+async function quickReceiveSubmit() {
+    const data = {
+        product_id: currentProductId,
+        quantity: parseInt(document.getElementById('quickReceiveQty').value),
+        purchase_price: parseFloat(document.getElementById('quickReceivePrice').value) || 0,
+        currency: document.getElementById('quickReceiveCurrency').value,
+        location: document.getElementById('quickReceiveLocation').value,
+        source_type: 'purchased'
+    };
+    
+    if (!data.quantity || data.quantity <= 0) {
+        alert('Enter valid quantity');
+        return;
+    }
+    
+    try {
+        const response = await apiCall('/api/warehouse/inventory/receive', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        
+        if (response && response.ok) {
+            closeModal('quickReceiveModal');
+            document.getElementById('quickReceiveQty').value = '';
+            document.getElementById('quickReceivePrice').value = '';
+            document.getElementById('quickReceiveLocation').value = '';
+            loadProductsList(currentSubcategoryId);
+        } else {
+            alert('Failed to receive inventory');
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function quickWriteoffSubmit() {
+    const data = {
+        product_id: currentProductId,
+        quantity: parseInt(document.getElementById('quickWriteoffQty').value),
+        reason: document.getElementById('quickWriteoffReason').value
+    };
+    
+    if (!data.quantity || data.quantity <= 0) {
+        alert('Enter valid quantity');
+        return;
+    }
+    
+    try {
+        const response = await apiCall('/api/warehouse/writeoffs', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        
+        if (response && response.ok) {
+            closeModal('quickWriteoffModal');
+            document.getElementById('quickWriteoffQty').value = '';
+            document.getElementById('quickWriteoffReason').value = '';
+            loadProductsList(currentSubcategoryId);
+        } else {
+            alert('Failed to write-off');
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+// Add category/subcategory/product
 function showAddCategoryModal() {
     document.getElementById('addCategoryModal').style.display = 'block';
 }
@@ -1065,7 +1581,7 @@ async function addCategory() {
     };
     
     if (!data.name) {
-        alert('Название обязательно');
+        alert('Name is required');
         return;
     }
     
@@ -1080,7 +1596,7 @@ async function addCategory() {
             document.getElementById('categoryName').value = '';
             document.getElementById('categoryDescription').value = '';
             document.getElementById('categoryIcon').value = '';
-            loadCategories();
+            loadProductsCategories();
         } else {
             alert('Failed to add category');
         }
@@ -1101,7 +1617,7 @@ async function addSubcategory() {
     };
     
     if (!data.name) {
-        alert('Название обязательно');
+        alert('Name is required');
         return;
     }
     
@@ -1115,7 +1631,7 @@ async function addSubcategory() {
             closeModal('addSubcategoryModal');
             document.getElementById('subcategoryName').value = '';
             document.getElementById('subcategoryDescription').value = '';
-            loadSubcategories(currentCategoryId);
+            loadProductsSubcategories(currentCategoryId);
         } else {
             alert('Failed to add subcategory');
         }
@@ -1138,7 +1654,7 @@ async function addProduct() {
     };
     
     if (!data.name) {
-        alert('Название обязательно');
+        alert('Name is required');
         return;
     }
     
@@ -1154,7 +1670,7 @@ async function addProduct() {
             document.getElementById('productDescription').value = '';
             document.getElementById('productSKU').value = '';
             document.getElementById('productMinStock').value = '';
-            loadProducts(currentSubcategoryId);
+            loadProductsList(currentSubcategoryId);
         } else {
             alert('Failed to add product');
         }
@@ -1163,110 +1679,397 @@ async function addProduct() {
     }
 }
 
-async function showReceiveInventoryModal() {
-    // Загрузить список всех товаров для оприходования
-    document.getElementById('receiveInventoryModal').style.display = 'block';
+function showAddWriteoffModal() {
+    document.getElementById('addWriteoffModal').style.display = 'block';
+}
+
+// ==================== POS (Point of Sale) ====================
+async function loadPOS() {
+    cart = [];
+    updatePOSDisplay();
+}
+
+async function searchPOSProducts() {
+    const searchTerm = document.getElementById('posSearch').value.toLowerCase();
     
-    // Load all products for dropdown
-    const allProductsResponse = await fetch('/api/warehouse/categories', {
-        headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-    });
-    
-    // This is simplified - in real app, you'd need to fetch all products across categories
-}
-
-function showSellInventoryModal() {
-    document.getElementById('sellInventoryModal').style.display = 'block';
-}
-
-function showProcurementModal() {
-    document.getElementById('procurementModal').style.display = 'block';
-}
-
-async function showAnalyticsModal() {
-    document.getElementById('analyticsModal').style.display = 'block';
-    await loadAnalytics();
-}
-
-async function loadAnalytics() {
-    const startDate = document.getElementById('analyticsStartDate').value;
-    const endDate = document.getElementById('analyticsEndDate').value;
-    
-    let url = '/api/warehouse/analytics?';
-    if (startDate) url += `start_date=${startDate}&`;
-    if (endDate) url += `end_date=${endDate}`;
+    if (searchTerm.length < 2) {
+        document.getElementById('posSearchResults').innerHTML = '';
+        return;
+    }
     
     try {
-        const response = await apiCall(url);
+        const response = await apiCall(`/api/warehouse/products/search?q=${encodeURIComponent(searchTerm)}`);
         if (!response) return;
         
-        const data = await response.json();
+        const results = await response.json();
         
-        let itemsHTML = '';
-        if (data.items.length === 0) {
-            itemsHTML = '<tr><td colspan="7">No sales data for selected period</td></tr>';
-        } else {
-            itemsHTML = data.items.map(item => {
-                const profitMargin = parseFloat(item.profit_margin_percent || 0).toFixed(2);
-                return `
-                    <tr>
-                        <td>${item.product_name}</td>
-                        <td>${item.category_name} > ${item.subcategory_name}</td>
-                        <td>${item.total_sold}</td>
-                        <td>${getCurrencySymbol(item.currency)}${parseFloat(item.total_revenue || 0).toFixed(2)}</td>
-                        <td>${getCurrencySymbol(item.currency)}${parseFloat(item.total_cost || 0).toFixed(2)}</td>
-                        <td class="${parseFloat(item.net_profit) >= 0 ? 'positive' : 'negative'}">
-                            ${getCurrencySymbol(item.currency)}${parseFloat(item.net_profit || 0).toFixed(2)}
-                        </td>
-                        <td>${profitMargin}%</td>
-                    </tr>
-                `;
-            }).join('');
-        }
+        let html = '<div class="pos-search-results">';
         
-        document.querySelector('#analyticsTable tbody').innerHTML = itemsHTML;
-        
-        // Display totals
-        let totalsHTML = '';
-        if (data.totals && data.totals.length > 0) {
-            data.totals.forEach(total => {
-                totalsHTML += `
-                    <div class="profit-card">
-                        <div class="currency-label">${total.currency} Всего продано</div>
-                        <div class="amount">${total.total_sold} шт</div>
-                    </div>
-                    <div class="profit-card">
-                        <div class="currency-label">${total.currency} Оборот</div>
-                        <div class="amount positive">${getCurrencySymbol(total.currency)}${parseFloat(total.total_revenue).toFixed(2)}</div>
-                    </div>
-                    <div class="profit-card">
-                        <div class="currency-label">${total.currency} Себестоимость</div>
-                        <div class="amount">${getCurrencySymbol(total.currency)}${parseFloat(total.total_cost).toFixed(2)}</div>
-                    </div>
-                    <div class="profit-card">
-                        <div class="currency-label">${total.currency} Чистая прибыль</div>
-                        <div class="amount ${parseFloat(total.net_profit) >= 0 ? 'positive' : 'negative'}">
-                            ${getCurrencySymbol(total.currency)}${parseFloat(total.net_profit).toFixed(2)}
-                        </div>
-                    </div>
-                    <div class="profit-card">
-                        <div class="currency-label">${total.currency} Рентабельность</div>
-                        <div class="amount">${total.profit_margin_percent}%</div>
+        results.forEach(p => {
+            if (p.total_quantity > 0) {
+                html += `
+                    <div class="pos-product-item" onclick="addToCart(${p.id}, '${p.name.replace(/'/g, "\\'")}', ${p.total_quantity})">
+                        <div><strong>${p.name}</strong></div>
+                        <div style="color: #ccc;">${p.category_name} > ${p.subcategory_name}</div>
+                        <div style="color: #4CAF50;">${p.total_quantity} pcs available</div>
                     </div>
                 `;
-            });
-        }
+            }
+        });
         
-        document.getElementById('analyticsTotals').innerHTML = totalsHTML;
+        html += '</div>';
         
+        document.getElementById('posSearchResults').innerHTML = html;
     } catch (error) {
-        console.error('Analytics error:', error);
+        console.error('POS search error:', error);
     }
 }
 
-// Admin
+function addToCart(productId, productName, availableQty) {
+    const existing = cart.find(item => item.productId === productId);
+    
+    if (existing) {
+        if (existing.quantity < availableQty) {
+            existing.quantity++;
+        } else {
+            alert('Not enough stock');
+            return;
+        }
+    } else {
+        cart.push({
+            productId: productId,
+            productName: productName,
+            quantity: 1,
+            availableQty: availableQty,
+            salePrice: 0,
+            currency: 'USD'
+        });
+    }
+    
+    updatePOSDisplay();
+    document.getElementById('posSearch').value = '';
+    document.getElementById('posSearchResults').innerHTML = '';
+}
+
+function updatePOSDisplay() {
+    let html = '';
+    
+    if (cart.length === 0) {
+        html = '<div class="loading">Cart is empty</div>';
+    } else {
+        cart.forEach((item, index) => {
+            html += `
+                <div class="cart-item">
+                    <div class="cart-item-header">
+                        <strong>${item.productName}</strong>
+                        <button class="btn btn-danger" onclick="removeFromCart(${index})">×</button>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px;">
+                        <div>
+                            <label>Quantity:</label>
+                            <input type="number" value="${item.quantity}" min="1" max="${item.availableQty}"
+                                   onchange="updateCartItem(${index}, 'quantity', this.value)"
+                                   style="width: 100%; padding: 5px; background: #3d3d3d; border: 1px solid #555; color: #fff; border-radius: 4px;">
+                        </div>
+                        <div>
+                            <label>Price:</label>
+                            <input type="number" step="0.01" value="${item.salePrice}" min="0"
+                                   onchange="updateCartItem(${index}, 'salePrice', this.value)"
+                                   style="width: 100%; padding: 5px; background: #3d3d3d; border: 1px solid #555; color: #fff; border-radius: 4px;">
+                        </div>
+                        <div>
+                            <label>Currency:</label>
+                            <select onchange="updateCartItem(${index}, 'currency', this.value)"
+                                    style="width: 100%; padding: 5px; background: #3d3d3d; border: 1px solid #555; color: #fff; border-radius: 4px;">
+                                <option value="USD" ${item.currency === 'USD' ? 'selected' : ''}>USD ($)</option>
+                                <option value="EUR" ${item.currency === 'EUR' ? 'selected' : ''}>EUR (€)</option>
+                                <option value="GEL" ${item.currency === 'GEL' ? 'selected' : ''}>GEL (₾)</option>
+                                <option value="RUB" ${item.currency === 'RUB' ? 'selected' : ''}>RUB (₽)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px; text-align: right;">
+                        <strong>Subtotal: ${getCurrencySymbol(item.currency)}${(item.quantity * item.salePrice).toFixed(2)}</strong>
+                    </div>
+                </div>
+            `;
+        });
+    }
+    
+    document.getElementById('posCart').innerHTML = html;
+    updatePOSTotals();
+}
+
+function updateCartItem(index, field, value) {
+    if (field === 'quantity') {
+        const qty = parseInt(value);
+        if (qty > cart[index].availableQty) {
+            alert('Not enough stock');
+            return;
+        }
+        cart[index][field] = qty;
+    } else if (field === 'salePrice') {
+        cart[index][field] = parseFloat(value);
+    } else {
+        cart[index][field] = value;
+    }
+    updatePOSDisplay();
+}
+
+function removeFromCart(index) {
+    cart.splice(index, 1);
+    updatePOSDisplay();
+}
+
+function clearCart() {
+    if (confirm('Clear entire cart?')) {
+        cart = [];
+        updatePOSDisplay();
+    }
+}
+
+async function updatePOSTotals() {
+    const totals = {};
+    
+    cart.forEach(item => {
+        const curr = item.currency;
+        if (!totals[curr]) {
+            totals[curr] = { revenue: 0, cost: 0 };
+        }
+        totals[curr].revenue += item.quantity * item.salePrice;
+    });
+    
+    // Get cost from inventory
+    for (const item of cart) {
+        try {
+            const response = await apiCall(`/api/warehouse/inventory/${item.productId}`);
+            if (response) {
+                const inv = await response.json();
+                if (inv.length > 0) {
+                    const avgCost = inv.reduce((sum, i) => sum + (parseFloat(i.purchase_price) || 0), 0) / inv.length;
+                    const curr = item.currency;
+                    totals[curr].cost += item.quantity * avgCost;
+                }
+            }
+        } catch (e) {}
+    }
+    
+    let html = '';
+    Object.keys(totals).forEach(curr => {
+        const profit = totals[curr].revenue - totals[curr].cost;
+        html += `
+            <div class="pos-total-card">
+                <div class="currency-label">${curr} Total</div>
+                <div class="amount" style="font-size: 24px; font-weight: bold;">${getCurrencySymbol(curr)}${totals[curr].revenue.toFixed(2)}</div>
+            </div>
+            <div class="pos-total-card">
+                <div class="currency-label">${curr} Cost</div>
+                <div class="amount">${getCurrencySymbol(curr)}${totals[curr].cost.toFixed(2)}</div>
+            </div>
+            <div class="pos-total-card">
+                <div class="currency-label">${curr} Profit</div>
+                <div class="amount positive">${getCurrencySymbol(curr)}${profit.toFixed(2)}</div>
+            </div>
+        `;
+    });
+    
+    document.getElementById('posTotals').innerHTML = html;
+}
+
+async function completeSale() {
+    if (cart.length === 0) {
+        alert('Cart is empty');
+        return;
+    }
+    
+    const hasZeroPrice = cart.some(item => item.salePrice <= 0);
+    if (hasZeroPrice) {
+        alert('All items must have a price greater than 0');
+        return;
+    }
+    
+    const buyerName = document.getElementById('posBuyerName').value;
+    const buyerPhone = document.getElementById('posBuyerPhone').value;
+    const notes = document.getElementById('posNotes').value;
+    
+    try {
+        const response = await apiCall('/api/warehouse/sales/complete', {
+            method: 'POST',
+            body: JSON.stringify({
+                items: cart,
+                buyer_name: buyerName,
+                buyer_phone: buyerPhone,
+                notes: notes
+            })
+        });
+        
+        if (response && response.ok) {
+            alert('Sale completed successfully!');
+            cart = [];
+            document.getElementById('posBuyerName').value = '';
+            document.getElementById('posBuyerPhone').value = '';
+            document.getElementById('posNotes').value = '';
+            updatePOSDisplay();
+        } else {
+            const error = await response.json();
+            alert('Failed to complete sale: ' + (error.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+function showPOSAddProductModal() {
+    // Reset the modal to step 1
+    currentCategoryId = null;
+    currentSubcategoryId = null;
+    loadPOSCategories();
+    document.getElementById('posAddProductModal').style.display = 'block';
+}
+
+async function loadPOSCategories() {
+    try {
+        const response = await apiCall('/api/warehouse/categories');
+        if (!response) return;
+
+        const cats = await response.json();
+        
+        let html = '<h3>Select Category</h3><div class="categories-grid">';
+        
+        cats.forEach(cat => {
+            html += `
+                <div class="category-card" onclick="loadPOSSubcategories(${cat.id})">
+                    <div class="category-icon">${cat.icon || '📦'}</div>
+                    <div class="category-name">${cat.name}</div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        document.getElementById('posProductModalContent').innerHTML = html;
+    } catch (error) {
+        console.error('Error loading categories:', error);
+    }
+}
+
+async function loadPOSSubcategories(categoryId) {
+    currentCategoryId = categoryId;
+    
+    try {
+        const response = await apiCall(`/api/warehouse/subcategories/${categoryId}`);
+        if (!response) return;
+
+        const subs = await response.json();
+        
+        let html = `
+            <button class="btn" onclick="loadPOSCategories()">← Back</button>
+            <h3 style="margin-top: 15px;">Select Subcategory</h3>
+            <div class="categories-grid">
+        `;
+        
+        subs.forEach(sub => {
+            html += `
+                <div class="category-card" onclick="showPOSProductForm(${sub.id})">
+                    <div class="category-icon">📋</div>
+                    <div class="category-name">${sub.name}</div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        document.getElementById('posProductModalContent').innerHTML = html;
+    } catch (error) {
+        console.error('Error loading subcategories:', error);
+    }
+}
+
+function showPOSProductForm(subcategoryId) {
+    currentSubcategoryId = subcategoryId;
+    
+    let html = `
+        <button class="btn" onclick="loadPOSSubcategories(${currentCategoryId})">← Back</button>
+        <h3 style="margin-top: 15px;">Add New Product</h3>
+        <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="posNewProductName">
+        </div>
+        <div class="form-group">
+            <label>Description</label>
+            <textarea id="posNewProductDesc" rows="2"></textarea>
+        </div>
+        <div class="form-group">
+            <label>SKU</label>
+            <input type="text" id="posNewProductSKU">
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div class="form-group">
+                <label>Sale Price</label>
+                <input type="number" step="0.01" id="posNewProductPrice">
+            </div>
+            <div class="form-group">
+                <label>Currency</label>
+                <select id="posNewProductCurrency">
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="GEL">GEL (₾)</option>
+                    <option value="RUB">RUB (₽)</option>
+                </select>
+            </div>
+        </div>
+        <button class="btn" onclick="createPOSProduct()">Create & Add to Cart</button>
+    `;
+    
+    document.getElementById('posProductModalContent').innerHTML = html;
+}
+
+async function createPOSProduct() {
+    const data = {
+        subcategory_id: currentSubcategoryId,
+        name: document.getElementById('posNewProductName').value,
+        description: document.getElementById('posNewProductDesc').value,
+        sku: document.getElementById('posNewProductSKU').value,
+        min_stock_level: 0
+    };
+    
+    if (!data.name) {
+        alert('Name is required');
+        return;
+    }
+    
+    try {
+        const response = await apiCall('/api/warehouse/products', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        
+        if (response && response.ok) {
+            const product = await response.json();
+            
+            // Add to cart immediately
+            const salePrice = parseFloat(document.getElementById('posNewProductPrice').value) || 0;
+            const currency = document.getElementById('posNewProductCurrency').value;
+            
+            cart.push({
+                productId: product.id,
+                productName: product.name,
+                quantity: 1,
+                availableQty: 999,
+                salePrice: salePrice,
+                currency: currency
+            });
+            
+            closeModal('posAddProductModal');
+            updatePOSDisplay();
+            alert('Product created and added to cart');
+        } else {
+            alert('Failed to create product');
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+// ==================== ADMIN ====================
 async function loadUsers() {
     if (currentUser.role !== 'ADMIN') {
         document.querySelector('#usersTable tbody').innerHTML = '<tr><td colspan="5">Access denied</td></tr>';
@@ -1358,10 +2161,10 @@ document.addEventListener('keydown', function(event) {
     }
 });
 
-// Auto-refresh dashboard
+// Auto-refresh analytics
 setInterval(() => {
-    const dashboardSection = document.getElementById('dashboard');
-    if (dashboardSection && dashboardSection.classList.contains('active')) {
-        loadDashboard();
+    const analyticsSection = document.getElementById('analytics');
+    if (analyticsSection && analyticsSection.classList.contains('active')) {
+        loadAnalytics();
     }
-}, 30000);
+}, 60000);
