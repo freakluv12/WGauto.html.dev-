@@ -7,13 +7,12 @@ const crypto = require('crypto');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// JWT_SECRET - генерируем если не установлен, но предупреждаем
+// JWT_SECRET
 let JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   JWT_SECRET = crypto.randomBytes(64).toString('hex');
-  console.warn('⚠️  WARNING: JWT_SECRET not set! Generated random secret for this session.');
-  console.warn('⚠️  Set JWT_SECRET in environment variables for production!');
-  console.warn('⚠️  Add this to Render Environment: JWT_SECRET=' + JWT_SECRET);
+  console.warn('⚠️  WARNING: JWT_SECRET not set! Generated random secret.');
+  console.warn('⚠️  Set JWT_SECRET in environment for production!');
 }
 
 const pool = new Pool({
@@ -27,7 +26,6 @@ app.use(express.static('public'));
 // Initialize database
 async function initDB() {
   try {
-    // Создание базовых таблиц (users, cars, transactions, rentals)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -88,30 +86,7 @@ async function initDB() {
       )
     `);
 
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS parts (
-        id SERIAL PRIMARY KEY,
-        car_id INTEGER REFERENCES cars(id),
-        user_id INTEGER REFERENCES users(id),
-        name VARCHAR(200) NOT NULL,
-        estimated_price DECIMAL(10,2),
-        currency VARCHAR(3),
-        cost_basis DECIMAL(10,2),
-        car_currency VARCHAR(3),
-        sale_price DECIMAL(10,2),
-        sale_currency VARCHAR(3),
-        buyer VARCHAR(200),
-        sale_notes TEXT,
-        status VARCHAR(20) DEFAULT 'available',
-        storage_location VARCHAR(100),
-        product_id INTEGER,
-        converted_to_inventory BOOLEAN DEFAULT false,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        sold_at TIMESTAMP
-      )
-    `);
-
-    // Создать admin если не существует
+    // Create admin if not exists
     const adminExists = await pool.query('SELECT id FROM users WHERE email = $1', ['admin@wgauto.com']);
     if (adminExists.rows.length === 0) {
       const randomPassword = crypto.randomBytes(8).toString('hex');
@@ -124,7 +99,7 @@ async function initDB() {
       console.log('✅ Admin user created!');
       console.log('📧 Email: admin@wgauto.com');
       console.log('🔑 Password:', randomPassword);
-      console.log('⚠️  SAVE THIS PASSWORD! It will not be shown again.');
+      console.log('⚠️  SAVE THIS PASSWORD!');
       console.log('='.repeat(60));
     }
 
@@ -157,7 +132,7 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-// AUTH ROUTES
+// ==================== AUTH ROUTES ====================
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -211,28 +186,41 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// DASHBOARD STATS
+// ==================== DASHBOARD STATS ====================
 app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
+    const { start_date, end_date } = req.query;
     const userFilter = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
+
+    let dateFilter = '';
+    let dateParams = [...params];
+    
+    if (start_date) {
+      dateParams.push(start_date);
+      dateFilter += ` AND date >= $${dateParams.length}`;
+    }
+    if (end_date) {
+      dateParams.push(end_date);
+      dateFilter += ` AND date <= $${dateParams.length}`;
+    }
 
     const incomeQuery = `
       SELECT currency, SUM(amount) as total 
       FROM transactions 
-      WHERE type = 'income' ${userFilter}
+      WHERE type = 'income' ${userFilter} ${dateFilter}
       GROUP BY currency
     `;
-    const income = await pool.query(incomeQuery, params);
+    const income = await pool.query(incomeQuery, dateParams);
 
     const expenseQuery = `
       SELECT currency, SUM(amount) as total 
       FROM transactions 
-      WHERE type = 'expense' ${userFilter}
+      WHERE type = 'expense' ${userFilter} ${dateFilter}
       GROUP BY currency
     `;
-    const expenses = await pool.query(expenseQuery, params);
+    const expenses = await pool.query(expenseQuery, dateParams);
 
     const carsQuery = `
       SELECT status, COUNT(*) as count 
@@ -261,7 +249,7 @@ app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
   }
 });
 
-// CARS ROUTES (оставляем как было)
+// ==================== CARS ROUTES ====================
 app.get('/api/cars', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
@@ -332,9 +320,6 @@ app.get('/api/cars/:id/details', authenticateToken, async (req, res) => {
     const rentalsQuery = `SELECT * FROM rentals WHERE car_id = $1 ORDER BY created_at DESC`;
     const rentals = await pool.query(rentalsQuery, [carId]);
 
-    const partsQuery = `SELECT * FROM parts WHERE car_id = $1 ORDER BY created_at DESC`;
-    const parts = await pool.query(partsQuery, [carId]);
-
     const profitQuery = `
       SELECT 
         currency,
@@ -350,7 +335,6 @@ app.get('/api/cars/:id/details', authenticateToken, async (req, res) => {
       car: car.rows[0],
       transactions: transactions.rows,
       rentals: rentals.rows,
-      parts: parts.rows,
       profitability: profit.rows
     });
   } catch (error) {
@@ -391,7 +375,7 @@ app.post('/api/cars/:id/dismantle', authenticateToken, async (req, res) => {
   }
 });
 
-// RENTAL ROUTES
+// ==================== RENTAL ROUTES ====================
 app.get('/api/rentals', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
@@ -519,13 +503,26 @@ app.get('/api/rentals/calendar/:year/:month', authenticateToken, async (req, res
   }
 });
 
-// WAREHOUSE ROUTES
+// ==================== WAREHOUSE ROUTES ====================
+
+// Categories
 app.get('/api/warehouse/categories', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
     const query = userId ? 
-      'SELECT * FROM categories WHERE user_id = $1 ORDER BY name' :
-      'SELECT * FROM categories ORDER BY name';
+      `SELECT c.*, COUNT(DISTINCT p.id) as product_count
+       FROM categories c
+       LEFT JOIN subcategories sc ON c.id = sc.category_id
+       LEFT JOIN products p ON sc.id = p.subcategory_id
+       WHERE c.user_id = $1
+       GROUP BY c.id
+       ORDER BY c.name` :
+      `SELECT c.*, COUNT(DISTINCT p.id) as product_count
+       FROM categories c
+       LEFT JOIN subcategories sc ON c.id = sc.category_id
+       LEFT JOIN products p ON sc.id = p.subcategory_id
+       GROUP BY c.id
+       ORDER BY c.name`;
     const params = userId ? [userId] : [];
     
     const result = await pool.query(query, params);
@@ -556,11 +553,17 @@ app.post('/api/warehouse/categories', authenticateToken, async (req, res) => {
   }
 });
 
+// Subcategories
 app.get('/api/warehouse/subcategories/:categoryId', authenticateToken, async (req, res) => {
   try {
     const categoryId = req.params.categoryId;
     const result = await pool.query(
-      'SELECT * FROM subcategories WHERE category_id = $1 ORDER BY name',
+      `SELECT sc.*, COUNT(p.id) as product_count
+       FROM subcategories sc
+       LEFT JOIN products p ON sc.id = p.subcategory_id
+       WHERE sc.category_id = $1
+       GROUP BY sc.id
+       ORDER BY sc.name`,
       [categoryId]
     );
     res.json(result.rows);
@@ -590,6 +593,7 @@ app.post('/api/warehouse/subcategories', authenticateToken, async (req, res) => 
   }
 });
 
+// Products
 app.get('/api/warehouse/products/:subcategoryId', authenticateToken, async (req, res) => {
   try {
     const subcategoryId = req.params.subcategoryId;
@@ -613,6 +617,41 @@ app.get('/api/warehouse/products/:subcategoryId', authenticateToken, async (req,
   }
 });
 
+app.get('/api/warehouse/products/search', authenticateToken, async (req, res) => {
+  try {
+    const { q } = req.query;
+    const userId = req.user.role === 'ADMIN' ? null : req.user.id;
+    
+    if (!q || q.length < 2) {
+      return res.json([]);
+    }
+    
+    const userFilter = userId ? 'AND p.user_id = $2' : '';
+    const params = userId ? [`%${q.toLowerCase()}%`, userId] : [`%${q.toLowerCase()}%`];
+    
+    const result = await pool.query(`
+      SELECT 
+        p.*,
+        c.name as category_name,
+        sc.name as subcategory_name,
+        COALESCE(SUM(i.quantity), 0) as total_quantity
+      FROM products p
+      JOIN subcategories sc ON p.subcategory_id = sc.id
+      JOIN categories c ON sc.category_id = c.id
+      LEFT JOIN inventory i ON p.id = i.product_id
+      WHERE (LOWER(p.name) LIKE $1 OR LOWER(p.sku) LIKE $1) ${userFilter}
+      GROUP BY p.id, c.name, sc.name
+      ORDER BY p.name
+      LIMIT 50
+    `, params);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Search products error:', error);
+    res.status(500).json({ error: 'Failed to search products' });
+  }
+});
+
 app.post('/api/warehouse/products', authenticateToken, async (req, res) => {
   try {
     const { subcategory_id, name, description, sku, min_stock_level } = req.body;
@@ -633,6 +672,7 @@ app.post('/api/warehouse/products', authenticateToken, async (req, res) => {
   }
 });
 
+// Inventory
 app.get('/api/warehouse/inventory/:productId', authenticateToken, async (req, res) => {
   try {
     const productId = req.params.productId;
@@ -642,7 +682,7 @@ app.get('/api/warehouse/inventory/:productId', authenticateToken, async (req, re
         i.*,
         CASE 
           WHEN i.source_type = 'dismantled' THEN c.brand || ' ' || c.model || ' ' || COALESCE(c.year::text, '')
-          ELSE 'Закупка'
+          ELSE 'Purchase'
         END as source_name,
         CURRENT_DATE - i.received_date as days_in_storage
       FROM inventory i
@@ -679,58 +719,29 @@ app.post('/api/warehouse/inventory/receive', authenticateToken, async (req, res)
   }
 });
 
-app.get('/api/warehouse/procurements', authenticateToken, async (req, res) => {
+app.post('/api/warehouse/inventory/receive/batch', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user.role === 'ADMIN' ? null : req.user.id;
-    const query = userId ?
-      'SELECT * FROM procurements WHERE user_id = $1 ORDER BY procurement_date DESC' :
-      'SELECT * FROM procurements ORDER BY procurement_date DESC';
-    const params = userId ? [userId] : [];
-    
-    const result = await pool.query(query, params);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get procurements error:', error);
-    res.status(500).json({ error: 'Failed to fetch procurements' });
-  }
-});
-
-app.post('/api/warehouse/procurements', authenticateToken, async (req, res) => {
-  try {
-    const { supplier_name, invoice_number, total_amount, currency, notes, procurement_date, items } = req.body;
+    const { items } = req.body;
     
     if (!items || items.length === 0) {
-      return res.status(400).json({ error: 'At least one item is required' });
+      return res.status(400).json({ error: 'No items to receive' });
     }
     
     const client = await pool.connect();
     
     try {
       await client.query('BEGIN');
-      
-      const procurementResult = await client.query(
-        `INSERT INTO procurements (supplier_name, invoice_number, total_amount, currency, notes, procurement_date, user_id, status) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-        [supplier_name || '', invoice_number || '', total_amount, currency, notes || '', procurement_date || new Date(), req.user.id, 'completed']
-      );
-      
-      const procurement = procurementResult.rows[0];
       
       for (const item of items) {
         await client.query(
-          'INSERT INTO procurement_items (procurement_id, product_id, quantity, unit_price, currency) VALUES ($1, $2, $3, $4, $5)',
-          [procurement.id, item.product_id, item.quantity, item.unit_price, currency]
-        );
-        
-        await client.query(
-          `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, currency, user_id) 
+          `INSERT INTO inventory (product_id, source_type, quantity, purchase_price, currency, location, user_id) 
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [item.product_id, 'purchased', procurement.id, item.quantity, item.unit_price, currency, req.user.id]
+          [item.productId, 'purchased', item.quantity, item.price, item.currency, item.location || '', req.user.id]
         );
       }
       
       await client.query('COMMIT');
-      res.json(procurement);
+      res.json({ success: true });
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -738,17 +749,44 @@ app.post('/api/warehouse/procurements', authenticateToken, async (req, res) => {
       client.release();
     }
   } catch (error) {
-    console.error('Create procurement error:', error);
-    res.status(500).json({ error: 'Failed to create procurement' });
+    console.error('Batch receive error:', error);
+    res.status(500).json({ error: 'Failed to receive items' });
   }
 });
 
-app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
+// Write-offs
+app.get('/api/warehouse/writeoffs', authenticateToken, async (req, res) => {
   try {
-    const { inventory_id, product_id, quantity, sale_price, cost_price, currency, buyer_name, buyer_phone, notes } = req.body;
+    const userId = req.user.role === 'ADMIN' ? null : req.user.id;
+    const userFilter = userId ? 'WHERE w.user_id = $1' : '';
+    const params = userId ? [userId] : [];
     
-    if (!product_id || !quantity || !sale_price || quantity <= 0) {
-      return res.status(400).json({ error: 'Product, positive quantity, and sale price are required' });
+    const result = await pool.query(`
+      SELECT 
+        w.*,
+        p.name as product_name,
+        w.quantity * COALESCE(i.purchase_price, 0) as total_value,
+        i.currency
+      FROM writeoffs w
+      JOIN products p ON w.product_id = p.id
+      LEFT JOIN inventory i ON w.inventory_id = i.id
+      ${userFilter}
+      ORDER BY w.writeoff_date DESC
+    `, params);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get writeoffs error:', error);
+    res.status(500).json({ error: 'Failed to fetch writeoffs' });
+  }
+});
+
+app.post('/api/warehouse/writeoffs', authenticateToken, async (req, res) => {
+  try {
+    const { product_id, quantity, reason } = req.body;
+    
+    if (!product_id || !quantity || quantity <= 0) {
+      return res.status(400).json({ error: 'Product and positive quantity required' });
     }
     
     const client = await pool.connect();
@@ -756,30 +794,33 @@ app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
     try {
       await client.query('BEGIN');
       
-      if (inventory_id) {
-        const inventoryCheck = await client.query(
-          'SELECT quantity FROM inventory WHERE id = $1',
-          [inventory_id]
-        );
-        
-        if (inventoryCheck.rows.length === 0 || inventoryCheck.rows[0].quantity < quantity) {
-          throw new Error('Insufficient inventory quantity');
-        }
-      }
-      
-      const saleResult = await client.query(
-        `INSERT INTO inventory_sales (inventory_id, product_id, quantity, sale_price, cost_price, currency, buyer_name, buyer_phone, notes, user_id) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-        [inventory_id || null, product_id, quantity, sale_price, cost_price || null, currency, buyer_name || '', buyer_phone || '', notes || '', req.user.id]
+      // Get oldest inventory for this product
+      const inventory = await client.query(
+        'SELECT * FROM inventory WHERE product_id = $1 AND quantity > 0 ORDER BY received_date LIMIT 1',
+        [product_id]
       );
       
+      if (inventory.rows.length === 0 || inventory.rows[0].quantity < quantity) {
+        throw new Error('Insufficient inventory');
+      }
+      
+      const inv = inventory.rows[0];
+      
+      // Create writeoff record
       await client.query(
-        'INSERT INTO transactions (user_id, type, amount, currency, category, description) VALUES ($1, $2, $3, $4, $5, $6)',
-        [req.user.id, 'income', sale_price * quantity, currency, 'parts', `Sale of ${quantity} units`]
+        `INSERT INTO writeoffs (product_id, inventory_id, quantity, reason, user_id) 
+         VALUES ($1, $2, $3, $4, $5)`,
+        [product_id, inv.id, quantity, reason || 'other', req.user.id]
+      );
+      
+      // Reduce inventory
+      await client.query(
+        'UPDATE inventory SET quantity = quantity - $1 WHERE id = $2',
+        [quantity, inv.id]
       );
       
       await client.query('COMMIT');
-      res.json(saleResult.rows[0]);
+      res.json({ success: true });
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -787,11 +828,103 @@ app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
       client.release();
     }
   } catch (error) {
-    console.error('Create sale error:', error);
-    res.status(500).json({ error: error.message || 'Failed to create sale' });
+    console.error('Write-off error:', error);
+    res.status(500).json({ error: error.message || 'Failed to write-off' });
   }
 });
 
+// Sales
+app.post('/api/warehouse/sales/complete', authenticateToken, async (req, res) => {
+  try {
+    const { items, buyer_name, buyer_phone, notes } = req.body;
+    
+    if (!items || items.length === 0) {
+      return res.status(400).json({ error: 'No items in cart' });
+    }
+    
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+      
+      for (const item of items) {
+        // Get inventory to calculate cost
+        const inventory = await client.query(
+          'SELECT * FROM inventory WHERE product_id = $1 AND quantity > 0 ORDER BY received_date',
+          [item.productId]
+        );
+        
+        let remainingQty = item.quantity;
+        let totalCost = 0;
+        
+        for (const inv of inventory.rows) {
+          if (remainingQty <= 0) break;
+          
+          const qtyToTake = Math.min(remainingQty, inv.quantity);
+          totalCost += qtyToTake * (parseFloat(inv.purchase_price) || 0);
+          
+          // Update inventory
+          await client.query(
+            'UPDATE inventory SET quantity = quantity - $1 WHERE id = $2',
+            [qtyToTake, inv.id]
+          );
+          
+          remainingQty -= qtyToTake;
+        }
+        
+        if (remainingQty > 0) {
+          throw new Error(`Insufficient inventory for ${item.productName}`);
+        }
+        
+        const costPrice = totalCost / item.quantity;
+        
+        // Record sale
+        await client.query(
+          `INSERT INTO inventory_sales 
+           (product_id, quantity, sale_price, cost_price, currency, buyer_name, buyer_phone, notes, user_id) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            item.productId,
+            item.quantity,
+            item.salePrice,
+            costPrice,
+            item.currency,
+            buyer_name || '',
+            buyer_phone || '',
+            notes || '',
+            req.user.id
+          ]
+        );
+        
+        // Record transaction
+        await client.query(
+          'INSERT INTO transactions (user_id, type, amount, currency, category, description) VALUES ($1, $2, $3, $4, $5, $6)',
+          [
+            req.user.id,
+            'income',
+            item.salePrice * item.quantity,
+            item.currency,
+            'parts',
+            `Sale: ${item.productName} x${item.quantity}`
+          ]
+        );
+      }
+      
+      await client.query('COMMIT');
+      res.json({ success: true });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Complete sale error:', error);
+    res.status(500).json({ error: error.message || 'Failed to complete sale' });
+  }
+});
+
+// Analytics
 app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
   try {
     const { start_date, end_date, category_id, subcategory_id } = req.query;
@@ -812,6 +945,11 @@ app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
           THEN ((SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity)) / SUM(s.cost_price * s.quantity) * 100)
           ELSE 0 
         END as profit_margin_percent,
+        CASE 
+          WHEN SUM(s.cost_price * s.quantity) > 0 
+          THEN ((SUM(s.sale_price * s.quantity) / SUM(s.cost_price * s.quantity) - 1) * 100)
+          ELSE 0 
+        END as markup_percent,
         s.currency
       FROM products p
       JOIN subcategories sc ON p.subcategory_id = sc.id
@@ -857,7 +995,7 @@ app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
       query += ' WHERE ' + conditions.join(' AND ');
     }
     
-    query += ' GROUP BY p.id, p.name, c.name, sc.name, s.currency ORDER BY total_revenue DESC';
+    query += ' GROUP BY p.id, p.name, c.name, sc.name, s.currency HAVING SUM(s.quantity) > 0 ORDER BY net_profit DESC';
     
     const result = await pool.query(query, params);
     
@@ -897,7 +1035,7 @@ app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
   }
 });
 
-// ADMIN ROUTES
+// ==================== ADMIN ROUTES ====================
 app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const result = await pool.query('SELECT id, email, role, active, created_at FROM users ORDER BY created_at DESC');
@@ -921,7 +1059,7 @@ app.put('/api/admin/users/:id/toggle', authenticateToken, requireAdmin, async (r
 
 // Health check
 app.get('/', (req, res) => {
-  res.send('WGauto CRM Server is running');
+  res.send('WGauto CRM Server v2.0 is running');
 });
 
 // Start server
@@ -929,9 +1067,6 @@ initDB().then(() => {
   app.listen(port, () => {
     console.log(`🚀 WGauto CRM Server running on port ${port}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    if (!process.env.JWT_SECRET) {
-      console.log('⚠️  Remember to set JWT_SECRET in production!');
-    }
   });
 });
 
