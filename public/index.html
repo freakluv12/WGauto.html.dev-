@@ -18,109 +18,6 @@
             line-height: 1.6;
         }
 
-        /* Notification System */
-        .notification {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 15px 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            z-index: 10000;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            min-width: 300px;
-            max-width: 500px;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from {
-                transform: translateX(400px);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-
-        .notification.fade-out {
-            animation: fadeOut 0.3s ease;
-        }
-
-        @keyframes fadeOut {
-            to {
-                opacity: 0;
-                transform: translateX(400px);
-            }
-        }
-
-        .notification-success {
-            background: #4CAF50;
-            color: white;
-        }
-
-        .notification-error {
-            background: #f44336;
-            color: white;
-        }
-
-        .notification-info {
-            background: #2196F3;
-            color: white;
-        }
-
-        .notification button {
-            background: none;
-            border: none;
-            color: white;
-            font-size: 20px;
-            cursor: pointer;
-            padding: 0;
-            width: 24px;
-            height: 24px;
-            line-height: 1;
-        }
-
-        /* Global Loader */
-        .global-loader {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.7);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-        }
-
-        .loader-content {
-            text-align: center;
-        }
-
-        .spinner {
-            width: 50px;
-            height: 50px;
-            border: 5px solid #3d3d3d;
-            border-top-color: #4CAF50;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 15px;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .loader-text {
-            color: #fff;
-            font-size: 16px;
-        }
-
         .container {
             display: flex;
             min-height: 100vh;
@@ -218,10 +115,6 @@
 
         .section {
             display: none;
-            background: #2d2d2d;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
         }
 
         .section.active {
@@ -503,7 +396,6 @@
             color: #ccc;
         }
 
-        /* Warehouse specific styles */
         .warehouse-action-bar {
             display: none;
             background: #3d3d3d;
@@ -550,6 +442,264 @@
             color: #ccc;
         }
 
+        /* POS System Styles */
+        .pos-container {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            height: calc(100vh - 200px);
+        }
+
+        .pos-left {
+            background: #3d3d3d;
+            border-radius: 12px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .pos-search {
+            margin-bottom: 20px;
+        }
+
+        .pos-search input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #555;
+            border-radius: 8px;
+            background: #2d2d2d;
+            color: #fff;
+            font-size: 16px;
+        }
+
+        .pos-breadcrumb {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .pos-breadcrumb-item {
+            padding: 8px 16px;
+            background: #2d2d2d;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .pos-breadcrumb-item:hover {
+            background: #4CAF50;
+        }
+
+        .pos-items-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .pos-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #2d2d2d;
+            padding: 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .pos-item:hover {
+            background: #4d4d4d;
+            transform: translateX(5px);
+        }
+
+        .pos-item-info {
+            flex: 1;
+        }
+
+        .pos-item-name {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .pos-item-stock {
+            font-size: 12px;
+            color: #ccc;
+        }
+
+        .pos-item-stock.low {
+            color: #ff9800;
+        }
+
+        .pos-item-stock.out {
+            color: #f44336;
+        }
+
+        .pos-item-price {
+            font-size: 18px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+
+        .pos-right {
+            background: #3d3d3d;
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .pos-receipt-header {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #4CAF50;
+            text-align: center;
+        }
+
+        .pos-receipt-items {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+
+        .pos-receipt-item {
+            background: #2d2d2d;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .pos-receipt-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .pos-receipt-item-name {
+            font-weight: bold;
+        }
+
+        .pos-receipt-item-remove {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .pos-receipt-item-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .pos-quantity-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .pos-quantity-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            width: 30px;
+            height: 30px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pos-quantity-btn:hover {
+            background: #45a049;
+        }
+
+        .pos-quantity-value {
+            font-weight: bold;
+            min-width: 30px;
+            text-align: center;
+        }
+
+        .pos-receipt-item-total {
+            font-weight: bold;
+            color: #4CAF50;
+        }
+
+        .pos-receipt-empty {
+            text-align: center;
+            color: #999;
+            padding: 40px 20px;
+        }
+
+        .pos-totals {
+            border-top: 2px solid #555;
+            padding-top: 15px;
+            margin-bottom: 15px;
+        }
+
+        .pos-total-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .pos-total-row.final {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 2px solid #4CAF50;
+        }
+
+        .pos-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .pos-btn {
+            flex: 1;
+            padding: 15px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .pos-btn-clear {
+            background: #f44336;
+            color: white;
+        }
+
+        .pos-btn-clear:hover {
+            background: #da190b;
+        }
+
+        .pos-btn-complete {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .pos-btn-complete:hover {
+            background: #45a049;
+        }
+
+        .pos-btn-complete:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
         @media (max-width: 768px) {
             .sidebar {
                 width: 100%;
@@ -578,10 +728,13 @@
                 margin: 10% auto;
             }
 
-            .notification {
-                right: 10px;
-                left: 10px;
-                min-width: auto;
+            .pos-container {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+
+            .pos-left, .pos-right {
+                min-height: 400px;
             }
         }
     </style>
@@ -629,6 +782,7 @@
         <div class="sidebar">
             <div class="logo">WGauto CRM</div>
             <button class="nav-item active" onclick="showSection('dashboard')">📊 Dashboard</button>
+            <button class="nav-item" onclick="showSection('pos')">💰 Касса</button>
             <button class="nav-item" onclick="showSection('cars')">🚗 Cars</button>
             <button class="nav-item" onclick="showSection('rentals')">📅 Rentals</button>
             <button class="nav-item" onclick="showSection('warehouse')">📦 Warehouse</button>
@@ -646,24 +800,44 @@
 
             <!-- Dashboard Section -->
             <div id="dashboard" class="section active">
-                <div class="stats-grid" id="statsGrid">
-                    <!-- Stats will be loaded here -->
+                <div class="stats-grid" id="statsGrid"></div>
+            </div>
+
+            <!-- POS Section -->
+            <div id="pos" class="section">
+                <div class="pos-container">
+                    <div class="pos-left">
+                        <div class="pos-search">
+                            <input type="text" id="posSearch" placeholder="🔍 Поиск товара..." oninput="posSearchProducts()">
+                        </div>
+                        <div class="pos-breadcrumb" id="posBreadcrumb"></div>
+                        <div class="pos-items-list" id="posItemsList"></div>
+                    </div>
+                    <div class="pos-right">
+                        <div class="pos-receipt-header">ЧЕК #<span id="posReceiptNumber">-</span></div>
+                        <div class="pos-receipt-items" id="posReceiptItems">
+                            <div class="pos-receipt-empty">Добавьте товары из списка слева</div>
+                        </div>
+                        <div class="pos-totals" id="posTotals" style="display: none;"></div>
+                        <div class="pos-actions">
+                            <button class="pos-btn pos-btn-clear" onclick="posClearReceipt()">Очистить</button>
+                            <button class="pos-btn pos-btn-complete" id="posCompleteBtn" onclick="posCompleteTransaction()" disabled>Завершить продажу</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- Cars Section -->
+            <!-- Остальные секции (Cars, Rentals, Warehouse, Admin) остаются без изменений -->
+            <!-- Скопируйте их из вашего оригинального index.html -->
+            
             <div id="cars" class="section">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <div class="section-title">Cars</div>
                     <button class="btn" onclick="showAddCarModal()">+ Add Car</button>
                 </div>
-                
                 <div style="margin-bottom: 20px;">
-                    <input type="text" id="carSearch" placeholder="Search by brand, model, VIN..." 
-                           style="width: 300px; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;"
-                           oninput="searchCars()">
-                    <select id="carStatusFilter" onchange="filterCars()" 
-                            style="margin-left: 10px; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;">
+                    <input type="text" id="carSearch" placeholder="Search..." style="width: 300px; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;" oninput="searchCars()">
+                    <select id="carStatusFilter" onchange="filterCars()" style="margin-left: 10px; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;">
                         <option value="">All Statuses</option>
                         <option value="active">Active</option>
                         <option value="rented">Rented</option>
@@ -672,42 +846,25 @@
                         <option value="dismantled">Dismantled</option>
                     </select>
                 </div>
-                
-                <div class="cars-grid" id="carsGrid">
-                    <!-- Cars will be loaded here -->
-                </div>
+                <div class="cars-grid" id="carsGrid"></div>
             </div>
 
-            <!-- Rentals Section -->
             <div id="rentals" class="section">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <div class="section-title">Rentals</div>
                     <button class="btn" onclick="showAddRentalModal()">+ New Rental</button>
                 </div>
-
                 <div class="tabs">
                     <button class="tab active" onclick="showRentalTab('active')">Active Rentals</button>
                     <button class="tab" onclick="showRentalTab('calendar')">Calendar</button>
                     <button class="tab" onclick="showRentalTab('history')">History</button>
                 </div>
-
                 <div id="activeRentals" class="tab-content active">
                     <table class="table" id="activeRentalsTable">
-                        <thead>
-                            <tr>
-                                <th>Car</th>
-                                <th>Client</th>
-                                <th>Start Date</th>
-                                <th>End Date</th>
-                                <th>Daily Price</th>
-                                <th>Total</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
+                        <thead><tr><th>Car</th><th>Client</th><th>Start Date</th><th>End Date</th><th>Daily Price</th><th>Total</th><th>Actions</th></tr></thead>
                         <tbody></tbody>
                     </table>
                 </div>
-
                 <div id="rentalCalendar" class="tab-content">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                         <button class="btn" onclick="changeMonth(-1)">‹ Previous</button>
@@ -716,494 +873,40 @@
                     </div>
                     <div id="calendar" class="calendar"></div>
                 </div>
-
                 <div id="rentalHistory" class="tab-content">
                     <table class="table" id="historyTable">
-                        <thead>
-                            <tr>
-                                <th>Car</th>
-                                <th>Client</th>
-                                <th>Period</th>
-                                <th>Total</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
+                        <thead><tr><th>Car</th><th>Client</th><th>Period</th><th>Total</th><th>Status</th></tr></thead>
                         <tbody></tbody>
                     </table>
                 </div>
             </div>
 
-            <!-- Warehouse Section -->
             <div id="warehouse" class="section">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <div class="section-title">Warehouse Management</div>
                 </div>
-
-                <!-- Warehouse Action Bar -->
                 <div id="warehouseActionBar" class="warehouse-action-bar">
                     <button class="btn" onclick="showWarehouseAction('stock')">📦 Склад</button>
                     <button class="btn" onclick="showWarehouseAction('receive')">📥 Оприходование</button>
-                    <button class="btn" onclick="showWarehouseAction('sell')">💰 Продажа</button>
                     <button class="btn" onclick="showWarehouseAction('procurement')">🛒 Закупка</button>
                     <button class="btn" onclick="showWarehouseAction('analytics')">📊 Аналитика</button>
                 </div>
-
-                <div id="warehouseContent">
-                    <!-- Dynamic warehouse content -->
-                </div>
+                <div id="warehouseContent"></div>
             </div>
 
-            <!-- Admin Section -->
             <div id="admin" class="section">
                 <div class="section-title">Admin Panel</div>
                 <table class="table" id="usersTable">
-                    <thead>
-                        <tr>
-                            <th>Email</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>Registered</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
+                    <thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Registered</th><th>Actions</th></tr></thead>
                     <tbody></tbody>
                 </table>
             </div>
         </div>
     </div>
 
-    <!-- MODALS -->
-
-    <!-- Add Car Modal -->
-    <div id="addCarModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('addCarModal')">&times;</span>
-            <h2>Add New Car</h2>
-            <div class="form-group">
-                <label>Brand</label>
-                <input type="text" id="carBrand" required>
-            </div>
-            <div class="form-group">
-                <label>Model</label>
-                <input type="text" id="carModel" required>
-            </div>
-            <div class="form-group">
-                <label>Year</label>
-                <input type="number" id="carYear" min="1950" max="2030">
-            </div>
-            <div class="form-group">
-                <label>VIN</label>
-                <input type="text" id="carVin">
-            </div>
-            <div class="form-group">
-                <label>Purchase Price</label>
-                <input type="number" id="carPrice" step="0.01" required>
-            </div>
-            <div class="form-group">
-                <label>Currency</label>
-                <select id="carCurrency" required>
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="GEL">GEL (₾)</option>
-                    <option value="RUB">RUB (₽)</option>
-                </select>
-            </div>
-            <button class="btn" onclick="addCar()">Add Car</button>
-        </div>
-    </div>
-
-    <!-- Car Details Modal -->
-    <div id="carDetailsModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('carDetailsModal')">&times;</span>
-            <h2 id="carDetailsTitle">Car Details</h2>
-            
-            <div class="tabs">
-                <button class="tab active" onclick="showCarTab('info')">Info</button>
-                <button class="tab" onclick="showCarTab('finances')">Finances</button>
-                <button class="tab" onclick="showCarTab('rentals')">Rental History</button>
-            </div>
-
-            <div id="carInfo" class="tab-content active">
-                <div id="carInfoContent"></div>
-                <div style="margin-top: 20px;">
-                    <button class="btn btn-danger" onclick="dismantleCar()">🔧 Dismantle Car</button>
-                </div>
-            </div>
-
-            <div id="carFinances" class="tab-content">
-                <div class="profit-summary" id="carProfitSummary"></div>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 20px;">
-                    <div>
-                        <h3>Add Expense</h3>
-                        <div class="form-group">
-                            <label>Amount</label>
-                            <input type="number" id="expenseAmount" step="0.01" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Currency</label>
-                            <select id="expenseCurrency" required>
-                                <option value="USD">USD ($)</option>
-                                <option value="EUR">EUR (€)</option>
-                                <option value="GEL">GEL (₾)</option>
-                                <option value="RUB">RUB (₽)</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Category</label>
-                            <select id="expenseCategory" required>
-                                <option value="repair">Repair</option>
-                                <option value="fuel">Fuel</option>
-                                <option value="insurance">Insurance</option>
-                                <option value="maintenance">Maintenance</option>
-                                <option value="parking">Parking</option>
-                                <option value="wash">Car Wash</option>
-                                <option value="parts">Parts Purchase</option>
-                                <option value="other">Other</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Description</label>
-                            <input type="text" id="expenseDescription" placeholder="Optional">
-                        </div>
-                        <button class="btn" onclick="addExpense()">Add Expense</button>
-                    </div>
-                </div>
-
-                <h3 style="margin-top: 30px;">Transaction History</h3>
-                <table class="table" id="carTransactions">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Type</th>
-                            <th>Amount</th>
-                            <th>Category</th>
-                            <th>Description</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-
-            <div id="carRentals" class="tab-content">
-                <table class="table" id="carRentalsTable">
-                    <thead>
-                        <tr>
-                            <th>Client</th>
-                            <th>Period</th>
-                            <th>Daily Price</th>
-                            <th>Total</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- Add Rental Modal -->
-    <div id="addRentalModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('addRentalModal')">&times;</span>
-            <h2>New Rental</h2>
-            <div class="form-group">
-                <label>Car</label>
-                <select id="rentalCar" required>
-                    <option value="">Select a car...</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Client Name</label>
-                <input type="text" id="rentalClient" required>
-            </div>
-            <div class="form-group">
-                <label>Client Phone</label>
-                <input type="tel" id="rentalPhone">
-            </div>
-            <div class="form-group">
-                <label>Start Date</label>
-                <input type="date" id="rentalStart" required>
-            </div>
-            <div class="form-group">
-                <label>End Date</label>
-                <input type="date" id="rentalEnd" required>
-            </div>
-            <div class="form-group">
-                <label>Daily Price</label>
-                <input type="number" id="rentalPrice" step="0.01" required>
-            </div>
-            <div class="form-group">
-                <label>Currency</label>
-                <select id="rentalCurrency" required>
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="GEL">GEL (₾)</option>
-                    <option value="RUB">RUB (₽)</option>
-                </select>
-            </div>
-            <button class="btn" onclick="addRental()">Create Rental</button>
-        </div>
-    </div>
-
-    <!-- Warehouse Modals -->
-
-    <!-- Add Category Modal -->
-    <div id="addCategoryModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('addCategoryModal')">&times;</span>
-            <h2>Добавить категорию</h2>
-            <div class="form-group">
-                <label>Название</label>
-                <input type="text" id="categoryName" required>
-            </div>
-            <div class="form-group">
-                <label>Описание</label>
-                <textarea id="categoryDescription" rows="3"></textarea>
-            </div>
-            <div class="form-group">
-                <label>Иконка (emoji)</label>
-                <input type="text" id="categoryIcon" placeholder="📦" maxlength="2">
-            </div>
-            <button class="btn" onclick="addCategory()">Добавить</button>
-        </div>
-    </div>
-
-    <!-- Add Subcategory Modal -->
-    <div id="addSubcategoryModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('addSubcategoryModal')">&times;</span>
-            <h2>Добавить подкатегорию</h2>
-            <div class="form-group">
-                <label>Название</label>
-                <input type="text" id="subcategoryName" required>
-            </div>
-            <div class="form-group">
-                <label>Описание</label>
-                <textarea id="subcategoryDescription" rows="3"></textarea>
-            </div>
-            <button class="btn" onclick="addSubcategory()">Добавить</button>
-        </div>
-    </div>
-
-    <!-- Add Product Modal -->
-    <div id="addProductModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('addProductModal')">&times;</span>
-            <h2>Добавить товар</h2>
-            <div class="form-group">
-                <label>Название</label>
-                <input type="text" id="productName" required>
-            </div>
-            <div class="form-group">
-                <label>Описание</label>
-                <textarea id="productDescription" rows="3"></textarea>
-            </div>
-            <div class="form-group">
-                <label>SKU / Артикул</label>
-                <input type="text" id="productSKU">
-            </div>
-            <div class="form-group">
-                <label>Минимальный уровень запаса</label>
-                <input type="number" id="productMinStock" value="0" min="0">
-            </div>
-            <button class="btn" onclick="addProduct()">Добавить товар</button>
-        </div>
-    </div>
-
-    <!-- Product Details Modal -->
-    <div id="productDetailsModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('productDetailsModal')">&times;</span>
-            <h2 id="productDetailsName">Product Details</h2>
-            <div style="margin-bottom: 20px; padding: 15px; background: #3d3d3d; border-radius: 8px;">
-                <p><strong>SKU:</strong> <span id="productDetailsSKU"></span></p>
-                <p><strong>Всего на складе:</strong> <span id="productDetailsTotal" style="font-weight: bold; color: #4CAF50;"></span></p>
-            </div>
-
-            <h3>Складские позиции</h3>
-            <table class="table" id="productInventoryTable">
-                <thead>
-                    <tr>
-                        <th>Источник</th>
-                        <th>Количество</th>
-                        <th>Цена закупки</th>
-                        <th>Место</th>
-                        <th>Дата поступления</th>
-                        <th>На складе</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- Receive Inventory Modal -->
-    <div id="receiveInventoryModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('receiveInventoryModal')">&times;</span>
-            <h2>Оприходование товара</h2>
-            <p style="color: #ccc; margin-bottom: 15px;">Добавьте остатки к существующему товару</p>
-            <div class="form-group">
-                <label>Товар</label>
-                <select id="receiveProduct" required>
-                    <option value="">Выберите товар...</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Источник поступления</label>
-                <select id="receiveSourceType" required>
-                    <option value="purchased">Закупка</option>
-                    <option value="dismantled">С разобранной машины</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Количество</label>
-                <input type="number" id="receiveQuantity" min="1" required>
-            </div>
-            <div class="form-group">
-                <label>Цена закупки (за единицу)</label>
-                <input type="number" id="receivePurchasePrice" step="0.01">
-            </div>
-            <div class="form-group">
-                <label>Валюта</label>
-                <select id="receiveCurrency">
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="GEL">GEL (₾)</option>
-                    <option value="RUB">RUB (₽)</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Место хранения</label>
-                <input type="text" id="receiveLocation" placeholder="Стеллаж A-5">
-            </div>
-            <button class="btn" onclick="receiveInventory()">Оприходовать</button>
-        </div>
-    </div>
-
-    <!-- Sell Inventory Modal -->
-    <div id="sellInventoryModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('sellInventoryModal')">&times;</span>
-            <h2>Продажа товара</h2>
-            <div class="form-group">
-                <label>Товар</label>
-                <select id="sellProduct" required>
-                    <option value="">Выберите товар...</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Количество</label>
-                <input type="number" id="sellQuantity" min="1" required>
-            </div>
-            <div class="form-group">
-                <label>Цена продажи (за единицу)</label>
-                <input type="number" id="sellSalePrice" step="0.01" required>
-            </div>
-            <div class="form-group">
-                <label>Валюта</label>
-                <select id="sellCurrency" required>
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="GEL">GEL (₾)</option>
-                    <option value="RUB">RUB (₽)</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Покупатель (опционально)</label>
-                <input type="text" id="sellBuyerName">
-            </div>
-            <div class="form-group">
-                <label>Телефон покупателя</label>
-                <input type="tel" id="sellBuyerPhone">
-            </div>
-            <div class="form-group">
-                <label>Заметки</label>
-                <textarea id="sellNotes" rows="2"></textarea>
-            </div>
-            <button class="btn" onclick="sellInventory()">Продать</button>
-        </div>
-    </div>
-
-    <!-- Procurement Modal -->
-    <div id="procurementModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('procurementModal')">&times;</span>
-            <h2>Новая закупка</h2>
-            <div class="form-group">
-                <label>Поставщик</label>
-                <input type="text" id="procurementSupplier">
-            </div>
-            <div class="form-group">
-                <label>Номер накладной</label>
-                <input type="text" id="procurementInvoice">
-            </div>
-            <div class="form-group">
-                <label>Дата закупки</label>
-                <input type="date" id="procurementDate" required>
-            </div>
-            <div class="form-group">
-                <label>Валюта</label>
-                <select id="procurementCurrency">
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="GEL">GEL (₾)</option>
-                    <option value="RUB">RUB (₽)</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Заметки</label>
-                <textarea id="procurementNotes" rows="2"></textarea>
-            </div>
-            <p style="color: #ccc; margin: 20px 0;">Позиции закупки будут добавлены через функцию "Оприходование"</p>
-            <button class="btn" onclick="createProcurement()">Создать закупку</button>
-        </div>
-    </div>
-
-    <!-- Analytics Modal -->
-    <div id="analyticsModal" class="modal">
-        <div class="modal-content" style="max-width: 1000px;">
-            <span class="close" onclick="closeModal('analyticsModal')">&times;</span>
-            <h2>Аналитика продаж</h2>
-            
-            <div style="display: flex; gap: 15px; margin-bottom: 20px;">
-                <div class="form-group" style="flex: 1;">
-                    <label>Начальная дата</label>
-                    <input type="date" id="analyticsStartDate">
-                </div>
-                <div class="form-group" style="flex: 1;">
-                    <label>Конечная дата</label>
-                    <input type="date" id="analyticsEndDate">
-                </div>
-                <div style="display: flex; align-items: flex-end;">
-                    <button class="btn" onclick="loadAnalytics()">Применить</button>
-                </div>
-            </div>
-
-            <h3>Итоги за период</h3>
-            <div class="profit-summary" id="analyticsTotals"></div>
-
-            <h3 style="margin-top: 30px;">Детализация по товарам</h3>
-            <table class="table" id="analyticsTable">
-                <thead>
-                    <tr>
-                        <th>Товар</th>
-                        <th>Категория</th>
-                        <th>Продано</th>
-                        <th>Оборот</th>
-                        <th>Себестоимость</th>
-                        <th>Прибыль</th>
-                        <th>Рентабельность</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </div>
-    </div>
+    <!-- Скопируйте ВСЕ модальные окна из вашего оригинального index.html -->
+    <!-- (Add Car Modal, Car Details Modal, Add Rental Modal, все Warehouse modals и т.д.) -->
 
     <script src="app.js"></script>
-    <script src="warehouse-functions.js"></script>
 </body>
-    </html>
+</html>
