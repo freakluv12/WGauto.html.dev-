@@ -7,12 +7,17 @@ const crypto = require('crypto');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// JWT_SECRET
+// JWT_SECRET - обязательно устанавливайте в переменных окружения!
 let JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   JWT_SECRET = crypto.randomBytes(64).toString('hex');
-  console.warn('⚠️  WARNING: JWT_SECRET not set! Generated random secret.');
-  console.warn('⚠️  Set JWT_SECRET in environment for production!');
+  console.error('='.repeat(60));
+  console.error('⚠️  CRITICAL WARNING: JWT_SECRET not set!');
+  console.error('⚠️  Generated temporary secret for this session.');
+  console.error('⚠️  All tokens will be invalid after restart!');
+  console.error('⚠️  Set JWT_SECRET in Render Environment Variables:');
+  console.error('⚠️  JWT_SECRET=' + JWT_SECRET);
+  console.error('='.repeat(60));
 }
 
 const pool = new Pool({
@@ -23,10 +28,12 @@ const pool = new Pool({
 app.use(express.json());
 app.use(express.static('public'));
 
-// Initialize database
+// Initialize database with ALL tables (синхронизировано с migrations.sql)
 async function initDB() {
   try {
-    // Create users table
+    console.log('🔄 Initializing database...');
+    
+    // 1. Users table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -38,7 +45,7 @@ async function initDB() {
       )
     `);
 
-    // Create cars table
+    // 2. Cars table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS cars (
         id SERIAL PRIMARY KEY,
@@ -54,7 +61,7 @@ async function initDB() {
       )
     `);
 
-    // Create transactions table
+    // 3. Transactions table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS transactions (
         id SERIAL PRIMARY KEY,
@@ -71,7 +78,7 @@ async function initDB() {
       )
     `);
 
-    // Create rentals table
+    // 4. Rentals table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS rentals (
         id SERIAL PRIMARY KEY,
@@ -90,118 +97,7 @@ async function initDB() {
       )
     `);
 
-    // Create warehouse tables
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS categories (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        description TEXT,
-        icon VARCHAR(50) DEFAULT '📦',
-        user_id INTEGER REFERENCES users(id),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS subcategories (
-        id SERIAL PRIMARY KEY,
-        category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
-        name VARCHAR(100) NOT NULL,
-        description TEXT,
-        user_id INTEGER REFERENCES users(id),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS products (
-        id SERIAL PRIMARY KEY,
-        subcategory_id INTEGER REFERENCES subcategories(id) ON DELETE CASCADE,
-        name VARCHAR(200) NOT NULL,
-        sku VARCHAR(100) UNIQUE,
-        description TEXT,
-        min_stock_level INTEGER DEFAULT 0,
-        user_id INTEGER REFERENCES users(id),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS inventory (
-        id SERIAL PRIMARY KEY,
-        product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
-        source_type VARCHAR(20) NOT NULL CHECK (source_type IN ('dismantled', 'purchased')),
-        source_id INTEGER,
-        quantity INTEGER NOT NULL DEFAULT 0,
-        purchase_price DECIMAL(10,2),
-        currency VARCHAR(3) DEFAULT 'USD',
-        location VARCHAR(100),
-        received_date DATE DEFAULT CURRENT_DATE,
-        user_id INTEGER REFERENCES users(id),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT check_quantity_positive CHECK (quantity >= 0)
-      )
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS inventory_sales (
-        id SERIAL PRIMARY KEY,
-        product_id INTEGER REFERENCES products(id),
-        inventory_id INTEGER REFERENCES inventory(id),
-        quantity INTEGER NOT NULL,
-        sale_price DECIMAL(10,2) NOT NULL,
-        cost_price DECIMAL(10,2),
-        currency VARCHAR(3) DEFAULT 'USD',
-        buyer_name VARCHAR(200),
-        buyer_phone VARCHAR(50),
-        notes TEXT,
-        sale_date DATE DEFAULT CURRENT_DATE,
-        user_id INTEGER REFERENCES users(id),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS writeoffs (
-        id SERIAL PRIMARY KEY,
-        product_id INTEGER REFERENCES products(id),
-        inventory_id INTEGER REFERENCES inventory(id),
-        quantity INTEGER NOT NULL,
-        reason VARCHAR(50) DEFAULT 'other',
-        notes TEXT,
-        writeoff_date DATE DEFAULT CURRENT_DATE,
-        user_id INTEGER REFERENCES users(id),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS procurements (
-        id SERIAL PRIMARY KEY,
-        supplier_name VARCHAR(200),
-        invoice_number VARCHAR(100),
-        total_amount DECIMAL(10,2),
-        currency VARCHAR(3) DEFAULT 'USD',
-        status VARCHAR(20) DEFAULT 'pending',
-        notes TEXT,
-        procurement_date DATE DEFAULT CURRENT_DATE,
-        user_id INTEGER REFERENCES users(id),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS procurement_items (
-        id SERIAL PRIMARY KEY,
-        procurement_id INTEGER REFERENCES procurements(id) ON DELETE CASCADE,
-        product_id INTEGER REFERENCES products(id),
-        quantity INTEGER NOT NULL,
-        unit_price DECIMAL(10,2) NOT NULL,
-        currency VARCHAR(3) DEFAULT 'USD',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
+    // 5. Parts table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS parts (
         id SERIAL PRIMARY KEY,
@@ -218,33 +114,159 @@ async function initDB() {
         sale_notes TEXT,
         status VARCHAR(20) DEFAULT 'available',
         storage_location VARCHAR(100),
-        product_id INTEGER REFERENCES products(id),
+        product_id INTEGER,
         converted_to_inventory BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         sold_at TIMESTAMP
       )
     `);
 
-    // Create indexes
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_categories_user ON categories(user_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_subcategories_category ON subcategories(category_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_subcategories_user ON subcategories(user_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_products_subcategory ON products(subcategory_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_products_user ON products(user_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_inventory_product ON inventory(product_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_inventory_source ON inventory(source_type, source_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_inventory_user ON inventory(user_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_sales_product ON inventory_sales(product_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_sales_date ON inventory_sales(sale_date)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_sales_user ON inventory_sales(user_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_writeoffs_product ON writeoffs(product_id)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_writeoffs_date ON writeoffs(writeoff_date)');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_writeoffs_user ON writeoffs(user_id)');
+    // 6. Categories table (Warehouse)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS categories (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        description TEXT,
+        icon VARCHAR(50),
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-    console.log('✅ All tables created successfully');
+    // 7. Subcategories table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS subcategories (
+        id SERIAL PRIMARY KEY,
+        category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+        name VARCHAR(100) NOT NULL,
+        description TEXT,
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-    // Create admin if not exists
+    // 8. Products table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS products (
+        id SERIAL PRIMARY KEY,
+        subcategory_id INTEGER REFERENCES subcategories(id) ON DELETE CASCADE,
+        name VARCHAR(200) NOT NULL,
+        sku VARCHAR(100) UNIQUE,
+        description TEXT,
+        min_stock_level INTEGER DEFAULT 0,
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // 9. Inventory table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS inventory (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+        source_type VARCHAR(20) NOT NULL CHECK (source_type IN ('dismantled', 'purchased')),
+        source_id INTEGER,
+        quantity INTEGER NOT NULL DEFAULT 0,
+        purchase_price DECIMAL(10,2),
+        currency VARCHAR(3),
+        location VARCHAR(100),
+        received_date DATE DEFAULT CURRENT_DATE,
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT check_quantity_positive CHECK (quantity >= 0)
+      )
+    `);
+
+    // 10. Procurements table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS procurements (
+        id SERIAL PRIMARY KEY,
+        supplier_name VARCHAR(200),
+        invoice_number VARCHAR(100),
+        total_amount DECIMAL(10,2),
+        currency VARCHAR(3),
+        status VARCHAR(20) DEFAULT 'pending',
+        notes TEXT,
+        procurement_date DATE DEFAULT CURRENT_DATE,
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // 11. Procurement items table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS procurement_items (
+        id SERIAL PRIMARY KEY,
+        procurement_id INTEGER REFERENCES procurements(id) ON DELETE CASCADE,
+        product_id INTEGER REFERENCES products(id),
+        quantity INTEGER NOT NULL,
+        unit_price DECIMAL(10,2) NOT NULL,
+        currency VARCHAR(3),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // 12. Inventory sales table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS inventory_sales (
+        id SERIAL PRIMARY KEY,
+        inventory_id INTEGER REFERENCES inventory(id),
+        product_id INTEGER REFERENCES products(id),
+        quantity INTEGER NOT NULL,
+        sale_price DECIMAL(10,2) NOT NULL,
+        cost_price DECIMAL(10,2),
+        currency VARCHAR(3),
+        buyer_name VARCHAR(200),
+        buyer_phone VARCHAR(50),
+        notes TEXT,
+        sale_date DATE DEFAULT CURRENT_DATE,
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create indexes for performance
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_products_subcategory ON products(subcategory_id);
+      CREATE INDEX IF NOT EXISTS idx_inventory_product ON inventory(product_id);
+      CREATE INDEX IF NOT EXISTS idx_inventory_source ON inventory(source_type, source_id);
+      CREATE INDEX IF NOT EXISTS idx_sales_product ON inventory_sales(product_id);
+      CREATE INDEX IF NOT EXISTS idx_sales_date ON inventory_sales(sale_date);
+      CREATE INDEX IF NOT EXISTS idx_procurement_date ON procurements(procurement_date);
+    `);
+
+    // Create trigger function for inventory updates (ИСПРАВЛЕНО)
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION update_inventory_on_sale()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        -- Только если указан inventory_id (не NULL)
+        IF NEW.inventory_id IS NOT NULL THEN
+          UPDATE inventory 
+          SET quantity = quantity - NEW.quantity
+          WHERE id = NEW.inventory_id;
+          
+          -- Проверить что не ушли в минус
+          IF (SELECT quantity FROM inventory WHERE id = NEW.inventory_id) < 0 THEN
+            RAISE EXCEPTION 'Insufficient inventory quantity';
+          END IF;
+        END IF;
+        
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+    `);
+
+    // Create trigger
+    await pool.query(`
+      DROP TRIGGER IF EXISTS trigger_update_inventory ON inventory_sales;
+      CREATE TRIGGER trigger_update_inventory
+        AFTER INSERT ON inventory_sales
+        FOR EACH ROW
+        EXECUTE FUNCTION update_inventory_on_sale();
+    `);
+
+    // Create admin user if doesn't exist
     const adminExists = await pool.query('SELECT id FROM users WHERE email = $1', ['admin@wgauto.com']);
     if (adminExists.rows.length === 0) {
       const randomPassword = crypto.randomBytes(8).toString('hex');
@@ -257,83 +279,14 @@ async function initDB() {
       console.log('✅ Admin user created!');
       console.log('📧 Email: admin@wgauto.com');
       console.log('🔑 Password:', randomPassword);
-      console.log('⚠️  SAVE THIS PASSWORD!');
+      console.log('⚠️  SAVE THIS PASSWORD! It will not be shown again.');
       console.log('='.repeat(60));
-    }
-
-    // Create sample categories if none exist
-    const categoriesExist = await pool.query('SELECT COUNT(*) as count FROM categories');
-    if (parseInt(categoriesExist.rows[0].count) === 0) {
-      const adminUser = await pool.query('SELECT id FROM users WHERE email = $1', ['admin@wgauto.com']);
-      if (adminUser.rows.length > 0) {
-        const adminId = adminUser.rows[0].id;
-        
-        console.log('📦 Creating sample categories...');
-        
-        // Create Toyota category
-        const toyotaResult = await pool.query(
-          'INSERT INTO categories (name, description, icon, user_id) VALUES ($1, $2, $3, $4) RETURNING id',
-          ['Toyota', 'Parts for Toyota vehicles', '🚗', adminId]
-        );
-        const toyotaId = toyotaResult.rows[0].id;
-        
-        // Create Mazda category
-        const mazdaResult = await pool.query(
-          'INSERT INTO categories (name, description, icon, user_id) VALUES ($1, $2, $3, $4) RETURNING id',
-          ['Mazda', 'Parts for Mazda vehicles', '🚙', adminId]
-        );
-        const mazdaId = mazdaResult.rows[0].id;
-        
-        // Create Honda category
-        const hondaResult = await pool.query(
-          'INSERT INTO categories (name, description, icon, user_id) VALUES ($1, $2, $3, $4) RETURNING id',
-          ['Honda', 'Parts for Honda vehicles', '🚕', adminId]
-        );
-        const hondaId = hondaResult.rows[0].id;
-        
-        // Create Universal category
-        await pool.query(
-          'INSERT INTO categories (name, description, icon, user_id) VALUES ($1, $2, $3, $4)',
-          ['Universal', 'Universal parts and accessories', '🔧', adminId]
-        );
-        
-        console.log('📋 Creating sample subcategories...');
-        
-        // Create subcategories for each brand
-        const subcategories = [
-          'Optics', 'Headlights, taillights, turn signals',
-          'Engines', 'Engines and engine parts',
-          'Body Parts', 'Doors, hoods, fenders, bumpers',
-          'Electronics', 'ECU, sensors, wiring',
-          'Suspension', 'Shocks, springs, control arms',
-          'Interior', 'Seats, dashboard, trim'
-        ];
-        
-        for (let i = 0; i < subcategories.length; i += 2) {
-          const name = subcategories[i];
-          const desc = subcategories[i + 1];
-          
-          await pool.query(
-            'INSERT INTO subcategories (category_id, name, description, user_id) VALUES ($1, $2, $3, $4)',
-            [toyotaId, name, desc, adminId]
-          );
-          await pool.query(
-            'INSERT INTO subcategories (category_id, name, description, user_id) VALUES ($1, $2, $3, $4)',
-            [mazdaId, name, desc, adminId]
-          );
-          await pool.query(
-            'INSERT INTO subcategories (category_id, name, description, user_id) VALUES ($1, $2, $3, $4)',
-            [hondaId, name, desc, adminId]
-          );
-        }
-        
-        console.log('✅ Sample data created successfully');
-      }
     }
 
     console.log('✅ Database initialized successfully');
   } catch (error) {
     console.error('❌ Database initialization error:', error);
+    throw error;
   }
 }
 
@@ -347,7 +300,10 @@ const authenticateToken = (req, res, next) => {
   }
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
+    if (err) {
+      console.log('Token verification failed:', err.message);
+      return res.sendStatus(403);
+    }
     req.user = user;
     next();
   });
@@ -360,13 +316,17 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-// ==================== AUTH ROUTES ====================
+// AUTH ROUTES
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password } = req.body;
     
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
     const existingUser = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
@@ -381,7 +341,7 @@ app.post('/api/auth/register', async (req, res) => {
     );
 
     const user = result.rows[0];
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
 
     res.json({ token, user });
   } catch (error) {
@@ -393,6 +353,10 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' });
+    }
 
     const result = await pool.query('SELECT * FROM users WHERE email = $1 AND active = true', [email]);
     if (result.rows.length === 0) {
@@ -406,7 +370,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
   } catch (error) {
     console.error('Login error:', error);
@@ -414,41 +378,28 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// ==================== DASHBOARD STATS ====================
+// DASHBOARD STATS
 app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
-    const { start_date, end_date } = req.query;
     const userFilter = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
-
-    let dateFilter = '';
-    let dateParams = [...params];
-    
-    if (start_date) {
-      dateParams.push(start_date);
-      dateFilter += ` AND date >= $${dateParams.length}`;
-    }
-    if (end_date) {
-      dateParams.push(end_date);
-      dateFilter += ` AND date <= $${dateParams.length}`;
-    }
 
     const incomeQuery = `
       SELECT currency, SUM(amount) as total 
       FROM transactions 
-      WHERE type = 'income' ${userFilter} ${dateFilter}
+      WHERE type = 'income' ${userFilter}
       GROUP BY currency
     `;
-    const income = await pool.query(incomeQuery, dateParams);
+    const income = await pool.query(incomeQuery, params);
 
     const expenseQuery = `
       SELECT currency, SUM(amount) as total 
       FROM transactions 
-      WHERE type = 'expense' ${userFilter} ${dateFilter}
+      WHERE type = 'expense' ${userFilter}
       GROUP BY currency
     `;
-    const expenses = await pool.query(expenseQuery, dateParams);
+    const expenses = await pool.query(expenseQuery, params);
 
     const carsQuery = `
       SELECT status, COUNT(*) as count 
@@ -477,7 +428,7 @@ app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
   }
 });
 
-// ==================== CARS ROUTES ====================
+// CARS ROUTES
 app.get('/api/cars', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
@@ -515,6 +466,18 @@ app.post('/api/cars', authenticateToken, async (req, res) => {
   try {
     const { brand, model, year, vin, price, currency } = req.body;
     
+    if (!brand || !model) {
+      return res.status(400).json({ error: 'Brand and model are required' });
+    }
+
+    if (price && price < 0) {
+      return res.status(400).json({ error: 'Price cannot be negative' });
+    }
+
+    if (year && (year < 1950 || year > 2030)) {
+      return res.status(400).json({ error: 'Invalid year' });
+    }
+    
     const result = await pool.query(
       'INSERT INTO cars (brand, model, year, vin, price, currency, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
       [brand, model, year, vin, price, currency, req.user.id]
@@ -548,6 +511,9 @@ app.get('/api/cars/:id/details', authenticateToken, async (req, res) => {
     const rentalsQuery = `SELECT * FROM rentals WHERE car_id = $1 ORDER BY created_at DESC`;
     const rentals = await pool.query(rentalsQuery, [carId]);
 
+    const partsQuery = `SELECT * FROM parts WHERE car_id = $1 ORDER BY created_at DESC`;
+    const parts = await pool.query(partsQuery, [carId]);
+
     const profitQuery = `
       SELECT 
         currency,
@@ -563,6 +529,7 @@ app.get('/api/cars/:id/details', authenticateToken, async (req, res) => {
       car: car.rows[0],
       transactions: transactions.rows,
       rentals: rentals.rows,
+      parts: parts.rows,
       profitability: profit.rows
     });
   } catch (error) {
@@ -578,6 +545,10 @@ app.post('/api/cars/:id/expense', authenticateToken, async (req, res) => {
 
     if (!amount || !currency || !category) {
       return res.status(400).json({ error: 'Amount, currency, and category are required' });
+    }
+
+    if (amount <= 0) {
+      return res.status(400).json({ error: 'Amount must be positive' });
     }
 
     await pool.query(
@@ -603,7 +574,7 @@ app.post('/api/cars/:id/dismantle', authenticateToken, async (req, res) => {
   }
 });
 
-// ==================== RENTAL ROUTES ====================
+// RENTAL ROUTES
 app.get('/api/rentals', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
@@ -630,6 +601,14 @@ app.get('/api/rentals', authenticateToken, async (req, res) => {
 app.post('/api/rentals', authenticateToken, async (req, res) => {
   try {
     const { car_id, client_name, client_phone, start_date, end_date, daily_price, currency } = req.body;
+    
+    if (!car_id || !client_name || !start_date || !end_date || !daily_price) {
+      return res.status(400).json({ error: 'All required fields must be filled' });
+    }
+
+    if (daily_price <= 0) {
+      return res.status(400).json({ error: 'Daily price must be positive' });
+    }
     
     const startDate = new Date(start_date);
     const endDate = new Date(end_date);
@@ -731,26 +710,15 @@ app.get('/api/rentals/calendar/:year/:month', authenticateToken, async (req, res
   }
 });
 
-// ==================== WAREHOUSE ROUTES ====================
+// Continue with warehouse routes in next artifact...
+// WAREHOUSE ROUTES
 
-// Categories
 app.get('/api/warehouse/categories', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
     const query = userId ? 
-      `SELECT c.*, COUNT(DISTINCT p.id) as product_count
-       FROM categories c
-       LEFT JOIN subcategories sc ON c.id = sc.category_id
-       LEFT JOIN products p ON sc.id = p.subcategory_id
-       WHERE c.user_id = $1
-       GROUP BY c.id
-       ORDER BY c.name` :
-      `SELECT c.*, COUNT(DISTINCT p.id) as product_count
-       FROM categories c
-       LEFT JOIN subcategories sc ON c.id = sc.category_id
-       LEFT JOIN products p ON sc.id = p.subcategory_id
-       GROUP BY c.id
-       ORDER BY c.name`;
+      'SELECT * FROM categories WHERE user_id = $1 ORDER BY name' :
+      'SELECT * FROM categories ORDER BY name';
     const params = userId ? [userId] : [];
     
     const result = await pool.query(query, params);
@@ -765,13 +733,13 @@ app.post('/api/warehouse/categories', authenticateToken, async (req, res) => {
   try {
     const { name, description, icon } = req.body;
     
-    if (!name) {
+    if (!name || name.trim().length === 0) {
       return res.status(400).json({ error: 'Name is required' });
     }
     
     const result = await pool.query(
       'INSERT INTO categories (name, description, icon, user_id) VALUES ($1, $2, $3, $4) RETURNING *',
-      [name, description || '', icon || '📦', req.user.id]
+      [name.trim(), description || '', icon || '📦', req.user.id]
     );
     
     res.json(result.rows[0]);
@@ -781,17 +749,11 @@ app.post('/api/warehouse/categories', authenticateToken, async (req, res) => {
   }
 });
 
-// Subcategories
 app.get('/api/warehouse/subcategories/:categoryId', authenticateToken, async (req, res) => {
   try {
     const categoryId = req.params.categoryId;
     const result = await pool.query(
-      `SELECT sc.*, COUNT(p.id) as product_count
-       FROM subcategories sc
-       LEFT JOIN products p ON sc.id = p.subcategory_id
-       WHERE sc.category_id = $1
-       GROUP BY sc.id
-       ORDER BY sc.name`,
+      'SELECT * FROM subcategories WHERE category_id = $1 ORDER BY name',
       [categoryId]
     );
     res.json(result.rows);
@@ -805,13 +767,13 @@ app.post('/api/warehouse/subcategories', authenticateToken, async (req, res) => 
   try {
     const { category_id, name, description } = req.body;
     
-    if (!category_id || !name) {
+    if (!category_id || !name || name.trim().length === 0) {
       return res.status(400).json({ error: 'Category ID and name are required' });
     }
     
     const result = await pool.query(
       'INSERT INTO subcategories (category_id, name, description, user_id) VALUES ($1, $2, $3, $4) RETURNING *',
-      [category_id, name, description || '', req.user.id]
+      [category_id, name.trim(), description || '', req.user.id]
     );
     
     res.json(result.rows[0]);
@@ -821,7 +783,6 @@ app.post('/api/warehouse/subcategories', authenticateToken, async (req, res) => 
   }
 });
 
-// Products
 app.get('/api/warehouse/products/:subcategoryId', authenticateToken, async (req, res) => {
   try {
     const subcategoryId = req.params.subcategoryId;
@@ -845,62 +806,34 @@ app.get('/api/warehouse/products/:subcategoryId', authenticateToken, async (req,
   }
 });
 
-app.get('/api/warehouse/products/search', authenticateToken, async (req, res) => {
-  try {
-    const { q } = req.query;
-    const userId = req.user.role === 'ADMIN' ? null : req.user.id;
-    
-    if (!q || q.length < 2) {
-      return res.json([]);
-    }
-    
-    const userFilter = userId ? 'AND p.user_id = $2' : '';
-    const params = userId ? [`%${q.toLowerCase()}%`, userId] : [`%${q.toLowerCase()}%`];
-    
-    const result = await pool.query(`
-      SELECT 
-        p.*,
-        c.name as category_name,
-        sc.name as subcategory_name,
-        COALESCE(SUM(i.quantity), 0) as total_quantity
-      FROM products p
-      JOIN subcategories sc ON p.subcategory_id = sc.id
-      JOIN categories c ON sc.category_id = c.id
-      LEFT JOIN inventory i ON p.id = i.product_id
-      WHERE (LOWER(p.name) LIKE $1 OR LOWER(p.sku) LIKE $1) ${userFilter}
-      GROUP BY p.id, c.name, sc.name
-      ORDER BY p.name
-      LIMIT 50
-    `, params);
-    
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Search products error:', error);
-    res.status(500).json({ error: 'Failed to search products' });
-  }
-});
-
 app.post('/api/warehouse/products', authenticateToken, async (req, res) => {
   try {
     const { subcategory_id, name, description, sku, min_stock_level } = req.body;
     
-    if (!subcategory_id || !name) {
+    if (!subcategory_id || !name || name.trim().length === 0) {
       return res.status(400).json({ error: 'Subcategory ID and name are required' });
+    }
+
+    if (min_stock_level && min_stock_level < 0) {
+      return res.status(400).json({ error: 'Minimum stock level cannot be negative' });
     }
     
     const result = await pool.query(
       'INSERT INTO products (subcategory_id, name, description, sku, min_stock_level, user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [subcategory_id, name, description || '', sku || null, min_stock_level || 0, req.user.id]
+      [subcategory_id, name.trim(), description || '', sku || null, min_stock_level || 0, req.user.id]
     );
     
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Create product error:', error);
-    res.status(500).json({ error: 'Failed to create product' });
+    if (error.code === '23505') { // Unique constraint violation
+      res.status(400).json({ error: 'SKU already exists' });
+    } else {
+      res.status(500).json({ error: 'Failed to create product' });
+    }
   }
 });
 
-// Inventory
 app.get('/api/warehouse/inventory/:productId', authenticateToken, async (req, res) => {
   try {
     const productId = req.params.productId;
@@ -910,7 +843,7 @@ app.get('/api/warehouse/inventory/:productId', authenticateToken, async (req, re
         i.*,
         CASE 
           WHEN i.source_type = 'dismantled' THEN c.brand || ' ' || c.model || ' ' || COALESCE(c.year::text, '')
-          ELSE 'Purchase'
+          ELSE 'Закупка'
         END as source_name,
         CURRENT_DATE - i.received_date as days_in_storage
       FROM inventory i
@@ -933,6 +866,14 @@ app.post('/api/warehouse/inventory/receive', authenticateToken, async (req, res)
     if (!product_id || !source_type || !quantity || quantity <= 0) {
       return res.status(400).json({ error: 'Product, source type, and positive quantity are required' });
     }
+
+    if (!['purchased', 'dismantled'].includes(source_type)) {
+      return res.status(400).json({ error: 'Invalid source type' });
+    }
+
+    if (purchase_price && purchase_price < 0) {
+      return res.status(400).json({ error: 'Purchase price cannot be negative' });
+    }
     
     const result = await pool.query(
       `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, currency, location, user_id) 
@@ -947,12 +888,32 @@ app.post('/api/warehouse/inventory/receive', authenticateToken, async (req, res)
   }
 });
 
-app.post('/api/warehouse/inventory/receive/batch', authenticateToken, async (req, res) => {
+app.get('/api/warehouse/procurements', authenticateToken, async (req, res) => {
   try {
-    const { items } = req.body;
+    const userId = req.user.role === 'ADMIN' ? null : req.user.id;
+    const query = userId ?
+      'SELECT * FROM procurements WHERE user_id = $1 ORDER BY procurement_date DESC' :
+      'SELECT * FROM procurements ORDER BY procurement_date DESC';
+    const params = userId ? [userId] : [];
+    
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get procurements error:', error);
+    res.status(500).json({ error: 'Failed to fetch procurements' });
+  }
+});
+
+app.post('/api/warehouse/procurements', authenticateToken, async (req, res) => {
+  try {
+    const { supplier_name, invoice_number, total_amount, currency, notes, procurement_date, items } = req.body;
     
     if (!items || items.length === 0) {
-      return res.status(400).json({ error: 'No items to receive' });
+      return res.status(400).json({ error: 'At least one item is required' });
+    }
+
+    if (total_amount && total_amount < 0) {
+      return res.status(400).json({ error: 'Total amount cannot be negative' });
     }
     
     const client = await pool.connect();
@@ -960,16 +921,33 @@ app.post('/api/warehouse/inventory/receive/batch', authenticateToken, async (req
     try {
       await client.query('BEGIN');
       
+      const procurementResult = await client.query(
+        `INSERT INTO procurements (supplier_name, invoice_number, total_amount, currency, notes, procurement_date, user_id, status) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+        [supplier_name || '', invoice_number || '', total_amount, currency, notes || '', procurement_date || new Date(), req.user.id, 'completed']
+      );
+      
+      const procurement = procurementResult.rows[0];
+      
       for (const item of items) {
+        if (!item.product_id || !item.quantity || item.quantity <= 0 || !item.unit_price || item.unit_price < 0) {
+          throw new Error('Invalid item data');
+        }
+
         await client.query(
-          `INSERT INTO inventory (product_id, source_type, quantity, purchase_price, currency, location, user_id) 
+          'INSERT INTO procurement_items (procurement_id, product_id, quantity, unit_price, currency) VALUES ($1, $2, $3, $4, $5)',
+          [procurement.id, item.product_id, item.quantity, item.unit_price, currency]
+        );
+        
+        await client.query(
+          `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, currency, user_id) 
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [item.productId, 'purchased', item.quantity, item.price, item.currency, item.location || '', req.user.id]
+          [item.product_id, 'purchased', procurement.id, item.quantity, item.unit_price, currency, req.user.id]
         );
       }
       
       await client.query('COMMIT');
-      res.json({ success: true });
+      res.json(procurement);
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -977,44 +955,17 @@ app.post('/api/warehouse/inventory/receive/batch', authenticateToken, async (req
       client.release();
     }
   } catch (error) {
-    console.error('Batch receive error:', error);
-    res.status(500).json({ error: 'Failed to receive items' });
+    console.error('Create procurement error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create procurement' });
   }
 });
 
-// Write-offs
-app.get('/api/warehouse/writeoffs', authenticateToken, async (req, res) => {
+app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user.role === 'ADMIN' ? null : req.user.id;
-    const userFilter = userId ? 'WHERE w.user_id = $1' : '';
-    const params = userId ? [userId] : [];
+    const { inventory_id, product_id, quantity, sale_price, cost_price, currency, buyer_name, buyer_phone, notes } = req.body;
     
-    const result = await pool.query(`
-      SELECT 
-        w.*,
-        p.name as product_name,
-        w.quantity * COALESCE(i.purchase_price, 0) as total_value,
-        i.currency
-      FROM writeoffs w
-      JOIN products p ON w.product_id = p.id
-      LEFT JOIN inventory i ON w.inventory_id = i.id
-      ${userFilter}
-      ORDER BY w.writeoff_date DESC
-    `, params);
-    
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get writeoffs error:', error);
-    res.status(500).json({ error: 'Failed to fetch writeoffs' });
-  }
-});
-
-app.post('/api/warehouse/writeoffs', authenticateToken, async (req, res) => {
-  try {
-    const { product_id, quantity, reason } = req.body;
-    
-    if (!product_id || !quantity || quantity <= 0) {
-      return res.status(400).json({ error: 'Product and positive quantity required' });
+    if (!product_id || !quantity || !sale_price || quantity <= 0 || sale_price < 0) {
+      return res.status(400).json({ error: 'Product, positive quantity, and valid sale price are required' });
     }
     
     const client = await pool.connect();
@@ -1022,33 +973,47 @@ app.post('/api/warehouse/writeoffs', authenticateToken, async (req, res) => {
     try {
       await client.query('BEGIN');
       
-      // Get oldest inventory for this product
-      const inventory = await client.query(
-        'SELECT * FROM inventory WHERE product_id = $1 AND quantity > 0 ORDER BY received_date LIMIT 1',
+      // Проверяем наличие товара на складе
+      const inventoryCheck = await client.query(
+        'SELECT COALESCE(SUM(quantity), 0) as total FROM inventory WHERE product_id = $1',
         [product_id]
       );
       
-      if (inventory.rows.length === 0 || inventory.rows[0].quantity < quantity) {
-        throw new Error('Insufficient inventory');
+      if (inventoryCheck.rows[0].total < quantity) {
+        throw new Error('Insufficient inventory quantity');
       }
       
-      const inv = inventory.rows[0];
-      
-      // Create writeoff record
-      await client.query(
-        `INSERT INTO writeoffs (product_id, inventory_id, quantity, reason, user_id) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [product_id, inv.id, quantity, reason || 'other', req.user.id]
+      // Находим самые старые записи инвентаря (FIFO)
+      const inventoryItems = await client.query(
+        'SELECT id, quantity FROM inventory WHERE product_id = $1 AND quantity > 0 ORDER BY received_date LIMIT 10',
+        [product_id]
       );
       
-      // Reduce inventory
+      let remainingQty = quantity;
+      for (const item of inventoryItems.rows) {
+        if (remainingQty <= 0) break;
+        
+        const toDeduct = Math.min(remainingQty, item.quantity);
+        await client.query(
+          'UPDATE inventory SET quantity = quantity - $1 WHERE id = $2',
+          [toDeduct, item.id]
+        );
+        remainingQty -= toDeduct;
+      }
+      
+      const saleResult = await client.query(
+        `INSERT INTO inventory_sales (inventory_id, product_id, quantity, sale_price, cost_price, currency, buyer_name, buyer_phone, notes, user_id) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+        [inventory_id || null, product_id, quantity, sale_price, cost_price || null, currency, buyer_name || '', buyer_phone || '', notes || '', req.user.id]
+      );
+      
       await client.query(
-        'UPDATE inventory SET quantity = quantity - $1 WHERE id = $2',
-        [quantity, inv.id]
+        'INSERT INTO transactions (user_id, type, amount, currency, category, description) VALUES ($1, $2, $3, $4, $5, $6)',
+        [req.user.id, 'income', sale_price * quantity, currency, 'parts', `Sale of ${quantity} units`]
       );
       
       await client.query('COMMIT');
-      res.json({ success: true });
+      res.json(saleResult.rows[0]);
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -1056,103 +1021,11 @@ app.post('/api/warehouse/writeoffs', authenticateToken, async (req, res) => {
       client.release();
     }
   } catch (error) {
-    console.error('Write-off error:', error);
-    res.status(500).json({ error: error.message || 'Failed to write-off' });
+    console.error('Create sale error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create sale' });
   }
 });
 
-// Sales
-app.post('/api/warehouse/sales/complete', authenticateToken, async (req, res) => {
-  try {
-    const { items, buyer_name, buyer_phone, notes } = req.body;
-    
-    if (!items || items.length === 0) {
-      return res.status(400).json({ error: 'No items in cart' });
-    }
-    
-    const client = await pool.connect();
-    
-    try {
-      await client.query('BEGIN');
-      
-      for (const item of items) {
-        // Get inventory to calculate cost
-        const inventory = await client.query(
-          'SELECT * FROM inventory WHERE product_id = $1 AND quantity > 0 ORDER BY received_date',
-          [item.productId]
-        );
-        
-        let remainingQty = item.quantity;
-        let totalCost = 0;
-        
-        for (const inv of inventory.rows) {
-          if (remainingQty <= 0) break;
-          
-          const qtyToTake = Math.min(remainingQty, inv.quantity);
-          totalCost += qtyToTake * (parseFloat(inv.purchase_price) || 0);
-          
-          // Update inventory
-          await client.query(
-            'UPDATE inventory SET quantity = quantity - $1 WHERE id = $2',
-            [qtyToTake, inv.id]
-          );
-          
-          remainingQty -= qtyToTake;
-        }
-        
-        if (remainingQty > 0) {
-          throw new Error(`Insufficient inventory for ${item.productName}`);
-        }
-        
-        const costPrice = totalCost / item.quantity;
-        
-        // Record sale
-        await client.query(
-          `INSERT INTO inventory_sales 
-           (product_id, quantity, sale_price, cost_price, currency, buyer_name, buyer_phone, notes, user_id) 
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [
-            item.productId,
-            item.quantity,
-            item.salePrice,
-            costPrice,
-            item.currency,
-            buyer_name || '',
-            buyer_phone || '',
-            notes || '',
-            req.user.id
-          ]
-        );
-        
-        // Record transaction
-        await client.query(
-          'INSERT INTO transactions (user_id, type, amount, currency, category, description) VALUES ($1, $2, $3, $4, $5, $6)',
-          [
-            req.user.id,
-            'income',
-            item.salePrice * item.quantity,
-            item.currency,
-            'parts',
-            `Sale: ${item.productName} x${item.quantity}`
-          ]
-        );
-      }
-      
-      await client.query('COMMIT');
-      res.json({ success: true });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-  } catch (error) {
-    console.error('Complete sale error:', error);
-    res.status(500).json({ error: error.message || 'Failed to complete sale' });
-  }
-});
-
-// Analytics
 app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
   try {
     const { start_date, end_date, category_id, subcategory_id } = req.query;
@@ -1173,11 +1046,6 @@ app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
           THEN ((SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity)) / SUM(s.cost_price * s.quantity) * 100)
           ELSE 0 
         END as profit_margin_percent,
-        CASE 
-          WHEN SUM(s.cost_price * s.quantity) > 0 
-          THEN ((SUM(s.sale_price * s.quantity) / SUM(s.cost_price * s.quantity) - 1) * 100)
-          ELSE 0 
-        END as markup_percent,
         s.currency
       FROM products p
       JOIN subcategories sc ON p.subcategory_id = sc.id
@@ -1223,7 +1091,7 @@ app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
       query += ' WHERE ' + conditions.join(' AND ');
     }
     
-    query += ' GROUP BY p.id, p.name, c.name, sc.name, s.currency HAVING SUM(s.quantity) > 0 ORDER BY net_profit DESC';
+    query += ' GROUP BY p.id, p.name, c.name, sc.name, s.currency ORDER BY total_revenue DESC';
     
     const result = await pool.query(query, params);
     
@@ -1263,7 +1131,7 @@ app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
   }
 });
 
-// ==================== ADMIN ROUTES ====================
+// ADMIN ROUTES
 app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const result = await pool.query('SELECT id, email, role, active, created_at FROM users ORDER BY created_at DESC');
@@ -1277,6 +1145,12 @@ app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) =>
 app.put('/api/admin/users/:id/toggle', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const userId = req.params.id;
+    
+    // Don't allow admin to deactivate themselves
+    if (parseInt(userId) === req.user.id) {
+      return res.status(400).json({ error: 'Cannot deactivate your own account' });
+    }
+    
     await pool.query('UPDATE users SET active = NOT active WHERE id = $1', [userId]);
     res.json({ success: true });
   } catch (error) {
@@ -1287,15 +1161,40 @@ app.put('/api/admin/users/:id/toggle', authenticateToken, requireAdmin, async (r
 
 // Health check
 app.get('/', (req, res) => {
-  res.send('WGauto CRM Server v2.0 is running');
+  res.send('WGauto CRM Server is running');
+});
+
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 // Start server
 initDB().then(() => {
   app.listen(port, () => {
+    console.log('='.repeat(60));
     console.log(`🚀 WGauto CRM Server running on port ${port}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`📅 Started at: ${new Date().toISOString()}`);
+    if (!process.env.JWT_SECRET) {
+      console.log('⚠️  WARNING: JWT_SECRET not set!');
+    } else {
+      console.log('✅ JWT_SECRET is configured');
+    }
+    console.log('='.repeat(60));
   });
+}).catch(error => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
 });
 
 module.exports = app;
