@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WGauto CRM - Warehouse Management</title>
+    <title>WGauto CRM v2.0</title>
     <style>
         * {
             margin: 0;
@@ -144,10 +144,6 @@
 
         .btn-danger {
             background: #f44336;
-        }
-
-        .btn-danger:hover {
-            background: #da190b;
         }
 
         .form-group {
@@ -442,7 +438,7 @@
             color: #ccc;
         }
 
-        /* POS System Styles */
+        /* POS System */
         .pos-container {
             display: grid;
             grid-template-columns: 2fr 1fr;
@@ -457,10 +453,6 @@
             overflow-y: auto;
         }
 
-        .pos-search {
-            margin-bottom: 20px;
-        }
-
         .pos-search input {
             width: 100%;
             padding: 12px;
@@ -469,6 +461,7 @@
             background: #2d2d2d;
             color: #fff;
             font-size: 16px;
+            margin-bottom: 20px;
         }
 
         .pos-breadcrumb {
@@ -618,10 +611,6 @@
             justify-content: center;
         }
 
-        .pos-quantity-btn:hover {
-            background: #45a049;
-        }
-
         .pos-quantity-value {
             font-weight: bold;
             min-width: 30px;
@@ -682,17 +671,9 @@
             color: white;
         }
 
-        .pos-btn-clear:hover {
-            background: #da190b;
-        }
-
         .pos-btn-complete {
             background: #4CAF50;
             color: white;
-        }
-
-        .pos-btn-complete:hover {
-            background: #45a049;
         }
 
         .pos-btn-complete:disabled {
@@ -715,32 +696,15 @@
                 flex-direction: column;
             }
 
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-
-            .cars-grid, .categories-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .modal-content {
-                width: 95%;
-                margin: 10% auto;
-            }
-
             .pos-container {
                 grid-template-columns: 1fr;
                 height: auto;
-            }
-
-            .pos-left, .pos-right {
-                min-height: 400px;
             }
         }
     </style>
 </head>
 <body>
-    <!-- Authentication Screen -->
+    <!-- Auth Screen -->
     <div id="authScreen" class="auth-container">
         <div class="auth-form">
             <div class="auth-title">WGauto CRM</div>
@@ -777,7 +741,7 @@
         </div>
     </div>
 
-    <!-- Main Application -->
+    <!-- Main App -->
     <div id="appScreen" class="container" style="display: none;">
         <div class="sidebar">
             <div class="logo">WGauto CRM</div>
@@ -798,12 +762,12 @@
                 </div>
             </div>
 
-            <!-- Dashboard Section -->
+            <!-- Dashboard -->
             <div id="dashboard" class="section active">
                 <div class="stats-grid" id="statsGrid"></div>
             </div>
 
-            <!-- POS Section -->
+            <!-- POS -->
             <div id="pos" class="section">
                 <div class="pos-container">
                     <div class="pos-left">
@@ -827,17 +791,18 @@
                 </div>
             </div>
 
-            <!-- Остальные секции (Cars, Rentals, Warehouse, Admin) остаются без изменений -->
-            <!-- Скопируйте их из вашего оригинального index.html -->
-            
+            <!-- Cars -->
             <div id="cars" class="section">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
                     <div class="section-title">Cars</div>
                     <button class="btn" onclick="showAddCarModal()">+ Add Car</button>
                 </div>
                 <div style="margin-bottom: 20px;">
-                    <input type="text" id="carSearch" placeholder="Search..." style="width: 300px; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;" oninput="searchCars()">
-                    <select id="carStatusFilter" onchange="filterCars()" style="margin-left: 10px; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;">
+                    <input type="text" id="carSearch" placeholder="Search..." 
+                           style="width: 300px; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;"
+                           oninput="searchCars()">
+                    <select id="carStatusFilter" onchange="filterCars()" 
+                            style="margin-left: 10px; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;">
                         <option value="">All Statuses</option>
                         <option value="active">Active</option>
                         <option value="rented">Rented</option>
@@ -849,24 +814,25 @@
                 <div class="cars-grid" id="carsGrid"></div>
             </div>
 
+            <!-- Rentals -->
             <div id="rentals" class="section">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
                     <div class="section-title">Rentals</div>
                     <button class="btn" onclick="showAddRentalModal()">+ New Rental</button>
                 </div>
                 <div class="tabs">
-                    <button class="tab active" onclick="showRentalTab('active')">Active Rentals</button>
+                    <button class="tab active" onclick="showRentalTab('active')">Active</button>
                     <button class="tab" onclick="showRentalTab('calendar')">Calendar</button>
                     <button class="tab" onclick="showRentalTab('history')">History</button>
                 </div>
                 <div id="activeRentals" class="tab-content active">
                     <table class="table" id="activeRentalsTable">
-                        <thead><tr><th>Car</th><th>Client</th><th>Start Date</th><th>End Date</th><th>Daily Price</th><th>Total</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Car</th><th>Client</th><th>Start</th><th>End</th><th>Daily</th><th>Total</th><th>Actions</th></tr></thead>
                         <tbody></tbody>
                     </table>
                 </div>
                 <div id="rentalCalendar" class="tab-content">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
                         <button class="btn" onclick="changeMonth(-1)">‹ Previous</button>
                         <h3 id="calendarTitle"></h3>
                         <button class="btn" onclick="changeMonth(1)">Next ›</button>
@@ -881,9 +847,10 @@
                 </div>
             </div>
 
+            <!-- Warehouse -->
             <div id="warehouse" class="section">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <div class="section-title">Warehouse Management</div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                    <div class="section-title">Warehouse</div>
                 </div>
                 <div id="warehouseActionBar" class="warehouse-action-bar">
                     <button class="btn" onclick="showWarehouseAction('stock')">📦 Склад</button>
@@ -894,6 +861,7 @@
                 <div id="warehouseContent"></div>
             </div>
 
+            <!-- Admin -->
             <div id="admin" class="section">
                 <div class="section-title">Admin Panel</div>
                 <table class="table" id="usersTable">
@@ -904,8 +872,187 @@
         </div>
     </div>
 
-    <!-- Скопируйте ВСЕ модальные окна из вашего оригинального index.html -->
-    <!-- (Add Car Modal, Car Details Modal, Add Rental Modal, все Warehouse modals и т.д.) -->
+    <!-- Modals -->
+    <div id="addCarModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('addCarModal')">&times;</span>
+            <h2>Add New Car</h2>
+            <div class="form-group">
+                <label>Brand</label>
+                <input type="text" id="carBrand" required>
+            </div>
+            <div class="form-group">
+                <label>Model</label>
+                <input type="text" id="carModel" required>
+            </div>
+            <div class="form-group">
+                <label>Year</label>
+                <input type="number" id="carYear">
+            </div>
+            <div class="form-group">
+                <label>VIN</label>
+                <input type="text" id="carVin">
+            </div>
+            <div class="form-group">
+                <label>Purchase Price</label>
+                <input type="number" id="carPrice" step="0.01">
+            </div>
+            <div class="form-group">
+                <label>Currency</label>
+                <select id="carCurrency">
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="GEL">GEL (₾)</option>
+                    <option value="RUB">RUB (₽)</option>
+                </select>
+            </div>
+            <button class="btn" onclick="addCar()">Add Car</button>
+        </div>
+    </div>
+
+    <div id="addRentalModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('addRentalModal')">&times;</span>
+            <h2>New Rental</h2>
+            <div class="form-group">
+                <label>Car</label>
+                <select id="rentalCar" required></select>
+            </div>
+            <div class="form-group">
+                <label>Client Name</label>
+                <input type="text" id="rentalClient" required>
+            </div>
+            <div class="form-group">
+                <label>Client Phone</label>
+                <input type="tel" id="rentalPhone">
+            </div>
+            <div class="form-group">
+                <label>Start Date</label>
+                <input type="date" id="rentalStart" required>
+            </div>
+            <div class="form-group">
+                <label>End Date</label>
+                <input type="date" id="rentalEnd" required>
+            </div>
+            <div class="form-group">
+                <label>Daily Price</label>
+                <input type="number" id="rentalPrice" step="0.01" required>
+            </div>
+            <div class="form-group">
+                <label>Currency</label>
+                <select id="rentalCurrency" required>
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="GEL">GEL</option>
+                    <option value="RUB">RUB</option>
+                </select>
+            </div>
+            <button class="btn" onclick="addRental()">Create Rental</button>
+        </div>
+    </div>
+
+    <div id="addCategoryModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('addCategoryModal')">&times;</span>
+            <h2>Добавить категорию</h2>
+            <div class="form-group">
+                <label>Название</label>
+                <input type="text" id="categoryName" required>
+            </div>
+            <div class="form-group">
+                <label>Описание</label>
+                <textarea id="categoryDescription" rows="3"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Иконка (emoji)</label>
+                <input type="text" id="categoryIcon" placeholder="📦" maxlength="2">
+            </div>
+            <button class="btn" onclick="addCategory()">Добавить</button>
+        </div>
+    </div>
+
+    <div id="addSubcategoryModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('addSubcategoryModal')">&times;</span>
+            <h2>Добавить подкатегорию</h2>
+            <div class="form-group">
+                <label>Название</label>
+                <input type="text" id="subcategoryName" required>
+            </div>
+            <div class="form-group">
+                <label>Описание</label>
+                <textarea id="subcategoryDescription" rows="3"></textarea>
+            </div>
+            <button class="btn" onclick="addSubcategory()">Добавить</button>
+        </div>
+    </div>
+
+    <div id="addProductModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('addProductModal')">&times;</span>
+            <h2>Добавить товар</h2>
+            <div class="form-group">
+                <label>Название</label>
+                <input type="text" id="productName" required>
+            </div>
+            <div class="form-group">
+                <label>Описание</label>
+                <textarea id="productDescription" rows="3"></textarea>
+            </div>
+            <div class="form-group">
+                <label>SKU</label>
+                <input type="text" id="productSKU">
+            </div>
+            <div class="form-group">
+                <label>Минимальный уровень запаса</label>
+                <input type="number" id="productMinStock" value="0" min="0">
+            </div>
+            <button class="btn" onclick="addProduct()">Добавить</button>
+        </div>
+    </div>
+
+    <div id="productDetailsModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('productDetailsModal')">&times;</span>
+            <h2 id="productDetailsName">Product Details</h2>
+            <div style="margin-bottom: 20px; padding: 15px; background: #3d3d3d; border-radius: 8px;">
+                <p><strong>SKU:</strong> <span id="productDetailsSKU"></span></p>
+                <p><strong>Всего на складе:</strong> <span id="productDetailsTotal"></span></p>
+            </div>
+            <h3>Складские позиции</h3>
+            <table class="table" id="productInventoryTable">
+                <thead><tr><th>Источник</th><th>Кол-во</th><th>Цена</th><th>Место</th><th>Дата</th><th>Дней</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="analyticsModal" class="modal">
+        <div class="modal-content" style="max-width: 1000px;">
+            <span class="close" onclick="closeModal('analyticsModal')">&times;</span>
+            <h2>Аналитика продаж</h2>
+            <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+                <div class="form-group" style="flex: 1;">
+                    <label>Начальная дата</label>
+                    <input type="date" id="analyticsStartDate">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label>Конечная дата</label>
+                    <input type="date" id="analyticsEndDate">
+                </div>
+                <div style="display: flex; align-items: flex-end;">
+                    <button class="btn" onclick="loadAnalytics()">Применить</button>
+                </div>
+            </div>
+            <h3>Итоги</h3>
+            <div class="profit-summary" id="analyticsTotals"></div>
+            <h3 style="margin-top: 30px;">Детализация</h3>
+            <table class="table" id="analyticsTable">
+                <thead><tr><th>Товар</th><th>Категория</th><th>Продано</th><th>Оборот</th><th>Себестоимость</th><th>Прибыль</th><th>Рентабельность</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>
