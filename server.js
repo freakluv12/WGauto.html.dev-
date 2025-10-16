@@ -906,7 +906,6 @@ app.post('/api/warehouse/inventory/receive-batch', authenticateToken, async (req
     console.error('Get inventory error:', error);
     res.status(500).json({ error: 'Failed to fetch inventory' });
   }
-});
 
 app.post('/api/warehouse/inventory/receive', authenticateToken, async (req, res) => {
   try {
