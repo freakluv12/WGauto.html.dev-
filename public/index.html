@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WGauto CRM - Complete Management System</title>
+    <title>WGauto CRM - Warehouse Management</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -52,7 +52,7 @@
             <button class="nav-item" onclick="showSection('cars')">🚗 Cars</button>
             <button class="nav-item" onclick="showSection('rentals')">📅 Rentals</button>
             <button class="nav-item" onclick="showSection('warehouse')">📦 Warehouse</button>
-            <button class="nav-item" onclick="showSection('pos')">💳 Point of Sale</button>
+            <button class="nav-item" onclick="showSection('pos')">🛒 Касса</button>
             <button class="nav-item" id="adminNav" onclick="showSection('admin')" style="display: none;">⚙️ Admin</button>
         </div>
 
@@ -67,7 +67,9 @@
 
             <!-- Dashboard Section -->
             <div id="dashboard" class="section active">
-                <div class="stats-grid" id="statsGrid"></div>
+                <div class="stats-grid" id="statsGrid">
+                    <!-- Stats will be loaded here -->
+                </div>
             </div>
 
             <!-- Cars Section -->
@@ -92,7 +94,9 @@
                     </select>
                 </div>
                 
-                <div class="cars-grid" id="carsGrid"></div>
+                <div class="cars-grid" id="carsGrid">
+                    <!-- Cars will be loaded here -->
+                </div>
             </div>
 
             <!-- Rentals Section -->
@@ -156,62 +160,130 @@
                     <div class="section-title">Warehouse Management</div>
                 </div>
 
-                <div id="warehouseActionBar" class="warehouse-action-bar">
-                    <button class="btn" onclick="showWarehouseAction('stock')">📦 Склад</button>
-                    <button class="btn" onclick="showWarehouseAction('receive')">📥 Оприходование</button>
-                    <button class="btn" onclick="showWarehouseAction('analytics')">📊 Аналитика</button>
+                <!-- Warehouse Tabs -->
+                <div class="tabs" id="warehouseTabs" style="display: none;">
+                    <button class="tab active" onclick="showWarehouseTab('stock')">📦 Склад</button>
+                    <button class="tab" onclick="showWarehouseTab('analytics')">📊 Аналитика</button>
                 </div>
 
-                <div id="warehouseContent"></div>
-            </div>
+                <!-- Stock Tab Content -->
+                <div id="warehouseStockTab" class="warehouse-tab-content active">
+                    <!-- Warehouse Action Bar -->
+                    <div id="warehouseActionBar" class="warehouse-action-bar">
+                        <button class="btn" onclick="showReceivingInterface()">📥 Оприходование</button>
+                        <button class="btn" onclick="showWarehouseAction('sell')">💰 Продажа</button>
+                        <button class="btn btn-disabled" disabled title="Ведутся работы">🛒 Закупка (в разработке)</button>
+                    </div>
 
-            <!-- Point of Sale Section -->
-            <div id="pos" class="section">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <div class="section-title">Point of Sale</div>
-                    <div>
-                        <span id="posCurrentShift" style="color: #ccc; margin-right: 15px;"></span>
-                        <button class="btn" id="posShiftBtn" onclick="toggleShift()">Open Shift</button>
+                    <div id="warehouseContent">
+                        <!-- Dynamic warehouse content -->
                     </div>
                 </div>
 
-                <div class="pos-container" id="posContainer">
-                    <!-- Left Panel - Products -->
-                    <div class="pos-left">
-                        <div class="pos-search">
-                            <input type="text" id="posSearch" placeholder="🔍 Search products... (Ctrl+F)" onkeyup="posSearchProducts()">
+                <!-- Analytics Tab Content -->
+                <div id="warehouseAnalyticsTab" class="warehouse-tab-content">
+                    <div style="background: #2d2d2d; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                        <h3 style="margin-bottom: 20px; color: #4CAF50;">Фильтры аналитики</h3>
+                        
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+                            <!-- Date Range -->
+                            <div class="form-group">
+                                <label>Период с:</label>
+                                <input type="date" id="analyticsStartDateFilter">
+                            </div>
+                            <div class="form-group">
+                                <label>Период по:</label>
+                                <input type="date" id="analyticsEndDateFilter">
+                            </div>
+
+                            <!-- Sales Filter -->
+                            <div class="form-group">
+                                <label>Продажи:</label>
+                                <div style="display: flex; gap: 5px;">
+                                    <select id="analyticsSalesCompare">
+                                        <option value="">Все</option>
+                                        <option value="more">Больше</option>
+                                        <option value="less">Меньше</option>
+                                    </select>
+                                    <input type="number" id="analyticsSalesValue" placeholder="0" style="width: 100px;">
+                                </div>
+                            </div>
+
+                            <!-- Revenue Filter -->
+                            <div class="form-group">
+                                <label>Выручка:</label>
+                                <div style="display: flex; gap: 5px;">
+                                    <select id="analyticsRevenueCompare">
+                                        <option value="">Все</option>
+                                        <option value="more">Больше</option>
+                                        <option value="less">Меньше</option>
+                                    </select>
+                                    <input type="number" id="analyticsRevenueValue" placeholder="0" step="0.01" style="width: 100px;">
+                                </div>
+                            </div>
+
+                            <!-- Profit Filter -->
+                            <div class="form-group">
+                                <label>Прибыль:</label>
+                                <div style="display: flex; gap: 5px;">
+                                    <select id="analyticsProfitCompare">
+                                        <option value="">Все</option>
+                                        <option value="more">Больше</option>
+                                        <option value="less">Меньше</option>
+                                    </select>
+                                    <input type="number" id="analyticsProfitValue" placeholder="0" step="0.01" style="width: 100px;">
+                                </div>
+                            </div>
+
+                            <!-- Margin Filter -->
+                            <div class="form-group">
+                                <label>Рентабельность (%):</label>
+                                <div style="display: flex; gap: 5px;">
+                                    <select id="analyticsMarginCompare">
+                                        <option value="">Все</option>
+                                        <option value="more">Больше</option>
+                                        <option value="less">Меньше</option>
+                                    </select>
+                                    <input type="number" id="analyticsMarginValue" placeholder="0" step="0.1" style="width: 100px;">
+                                </div>
+                            </div>
                         </div>
 
-                        <div class="pos-breadcrumb" id="posBreadcrumb"></div>
-
-                        <div class="pos-items-list" id="posItemsList"></div>
+                        <div style="margin-top: 20px; display: flex; gap: 10px;">
+                            <button class="btn" onclick="loadWarehouseAnalytics()">🔍 Применить фильтры</button>
+                            <button class="btn" onclick="resetAnalyticsFilters()">🔄 Сбросить</button>
+                        </div>
                     </div>
 
-                    <!-- Right Panel - Receipt -->
-                    <div class="pos-right">
-                        <div class="pos-receipt-header">🧾 Current Receipt</div>
+                    <!-- Analytics Results -->
+                    <div id="analyticsResults" style="background: #2d2d2d; padding: 20px; border-radius: 12px;">
+                        <h3 style="margin-bottom: 15px; color: #4CAF50;">Результаты за период: <span id="analyticsPeriodDisplay"></span></h3>
+                        
+                        <!-- Summary Cards -->
+                        <div class="profit-summary" id="analyticsSummaryCards"></div>
 
-                        <div class="pos-receipt-items" id="posReceiptItems">
-                            <div class="pos-receipt-empty">
-                                Cart is empty<br>
-                                <small>Add items to start</small>
-                            </div>
-                        </div>
-
-                        <div class="pos-totals" id="posTotals" style="display: none;">
-                            <div class="pos-total-row">
-                                <span>Subtotal:</span>
-                                <span id="posSubtotal">$0.00</span>
-                            </div>
-                            <div class="pos-total-row final">
-                                <span>TOTAL:</span>
-                                <span id="posTotal">$0.00</span>
-                            </div>
-                        </div>
-
-                        <div class="pos-actions">
-                            <button class="pos-btn pos-btn-clear" onclick="posClearCart()">🗑️ Clear</button>
-                            <button class="pos-btn pos-btn-complete" id="posCompleteBtn" onclick="posCompleteTransaction()" disabled>✓ Complete Sale</button>
+                        <!-- Analytics Table Container -->
+                        <div style="overflow-x: auto; margin-top: 30px;">
+                            <table class="table analytics-table" id="warehouseAnalyticsTable">
+                                <thead>
+                                    <tr style="position: sticky; top: 0; background: #3d3d3d; z-index: 10;">
+                                        <th onclick="sortAnalyticsByColumn('name')" style="cursor: pointer;">Название товара</th>
+                                        <th onclick="sortAnalyticsByColumn('category')" style="cursor: pointer;">Категория</th>
+                                        <th onclick="sortAnalyticsByColumn('sku')" style="cursor: pointer;">SKU</th>
+                                        <th onclick="sortAnalyticsByColumn('sales')" style="cursor: pointer;">Продажи (шт)</th>
+                                        <th onclick="sortAnalyticsByColumn('revenue')" style="cursor: pointer;">Выручка</th>
+                                        <th onclick="sortAnalyticsByColumn('cost')" style="cursor: pointer;">Себестоимость</th>
+                                        <th onclick="sortAnalyticsByColumn('profit')" style="cursor: pointer;">Прибыль</th>
+                                        <th onclick="sortAnalyticsByColumn('margin')" style="cursor: pointer;">Рентабельность (%)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="analyticsTableBody">
+                                    <!-- Analytics data will be loaded here -->
+                                </tbody>
+                                <tfoot id="analyticsTableFooter" style="position: sticky; bottom: 0; background: #4CAF50; font-weight: bold;">
+                                    <!-- Totals will be loaded here -->
+                                </tfoot>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -233,10 +305,57 @@
                     <tbody></tbody>
                 </table>
             </div>
+
+            <!-- POS Section (NEW) -->
+            <div id="pos" class="section">
+                <div class="section-title">Касса (POS)</div>
+                
+                <div class="pos-container">
+                    <!-- Left Panel - Product Selection -->
+                    <div class="pos-left">
+                        <div class="pos-search">
+                            <input type="text" id="posSearchInput" placeholder="🔍 Поиск товара..." oninput="searchPOSProducts()">
+                        </div>
+                        
+                        <div class="pos-breadcrumb" id="posBreadcrumb">
+                            <div class="pos-breadcrumb-item" onclick="loadPOSCategories()">📦 Все категории</div>
+                        </div>
+                        
+                        <div class="pos-items-list" id="posItemsList">
+                            <!-- Dynamic content: categories → subcategories → products -->
+                        </div>
+                    </div>
+                    
+                    <!-- Right Panel - Receipt -->
+                    <div class="pos-right">
+                        <div class="pos-receipt-header">🧾 ЧЕК</div>
+                        
+                        <div class="pos-receipt-items" id="posReceiptItems">
+                            <div class="pos-receipt-empty">Добавьте товары из каталога</div>
+                        </div>
+                        
+                        <div class="pos-totals" id="posTotals" style="display: none;">
+                            <div class="pos-total-row">
+                                <span>Товаров:</span>
+                                <span id="posTotalItems">0</span>
+                            </div>
+                            <div class="pos-total-row final">
+                                <span>ИТОГО:</span>
+                                <span id="posTotalAmount">$0.00</span>
+                            </div>
+                        </div>
+                        
+                        <div class="pos-actions">
+                            <button class="pos-btn pos-btn-clear" onclick="clearPOSReceipt()">🗑️ Очистить</button>
+                            <button class="pos-btn pos-btn-complete" id="posCompleteBtn" onclick="showPOSCheckout()" disabled>💳 Продажа</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- ALL MODALS -->
+    <!-- All existing modals remain the same -->
     
     <!-- Add Car Modal -->
     <div id="addCarModal" class="modal">
@@ -412,7 +531,8 @@
     </div>
 
     <!-- Warehouse Modals -->
-    
+
+    <!-- Add Category Modal -->
     <div id="addCategoryModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal('addCategoryModal')">&times;</span>
@@ -433,6 +553,7 @@
         </div>
     </div>
 
+    <!-- Add Subcategory Modal -->
     <div id="addSubcategoryModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal('addSubcategoryModal')">&times;</span>
@@ -449,6 +570,7 @@
         </div>
     </div>
 
+    <!-- Add Product Modal -->
     <div id="addProductModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal('addProductModal')">&times;</span>
@@ -473,6 +595,7 @@
         </div>
     </div>
 
+    <!-- Product Details Modal -->
     <div id="productDetailsModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal('productDetailsModal')">&times;</span>
@@ -480,10 +603,6 @@
             <div style="margin-bottom: 20px; padding: 15px; background: #3d3d3d; border-radius: 8px;">
                 <p><strong>SKU:</strong> <span id="productDetailsSKU"></span></p>
                 <p><strong>Всего на складе:</strong> <span id="productDetailsTotal" style="font-weight: bold; color: #4CAF50;"></span></p>
-            </div>
-
-            <div style="margin-bottom: 20px;">
-                <button class="btn" onclick="showReceiveForProduct()">📥 Оприходовать</button>
             </div>
 
             <h3>Складские позиции</h3>
@@ -503,21 +622,18 @@
         </div>
     </div>
 
+    <!-- Receive Inventory Modal -->
     <div id="receiveInventoryModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModal('receiveInventoryModal')">&times;</span>
             <h2>Оприходование товара</h2>
-            <p style="color: #ccc; margin-bottom: 15px;">Добавьте остатки к товару: <strong id="receiveProductName"></strong></p>
+            <p style="color: #ccc; margin-bottom: 15px;">Добавьте остатки к существующему товару</p>
             <div class="form-group">
                 <label>Источник поступления</label>
-                <select id="receiveSourceType" required onchange="toggleReceiveSourceFields()">
+                <select id="receiveSourceType" required>
                     <option value="purchased">Закупка</option>
                     <option value="dismantled">С разобранной машины</option>
                 </select>
-            </div>
-            <div class="form-group" id="receiveCarGroup" style="display: none;">
-                <label>Выберите машину</label>
-                <select id="receiveCarId"></select>
             </div>
             <div class="form-group">
                 <label>Количество</label>
@@ -544,77 +660,180 @@
         </div>
     </div>
 
-    <div id="analyticsModal" class="modal">
-        <div class="modal-content" style="max-width: 1000px;">
-            <span class="close" onclick="closeModal('analyticsModal')">&times;</span>
-            <h2>Аналитика складской системы</h2>
-            
-            <div style="display: flex; gap: 15px; margin-bottom: 20px;">
-                <div class="form-group" style="flex: 1;">
-                    <label>Начальная дата</label>
-                    <input type="date" id="analyticsStartDate">
-                </div>
-                <div class="form-group" style="flex: 1;">
-                    <label>Конечная дата</label>
-                    <input type="date" id="analyticsEndDate">
-                </div>
-                <div style="display: flex; align-items: flex-end;">
-                    <button class="btn" onclick="loadAnalytics()">Применить</button>
-                </div>
-            </div>
-
-            <h3>Текущие остатки по категориям</h3>
-            <div class="profit-summary" id="analyticsTotals"></div>
-
-            <h3 style="margin-top: 30px;">Детализация по товарам</h3>
-            <table class="table" id="analyticsTable">
-                <thead>
-                    <tr>
-                        <th>Товар</th>
-                        <th>Категория</th>
-                        <th>Остаток</th>
-                        <th>Средняя цена</th>
-                        <th>Общая стоимость</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- PoS Payment Modal -->
-    <div id="posPaymentModal" class="modal">
+    <!-- Sell Inventory Modal -->
+    <div id="sellInventoryModal" class="modal">
         <div class="modal-content">
-            <span class="close" onclick="closeModal('posPaymentModal')">&times;</span>
-            <h2>Оплата</h2>
-            <div style="text-align: center; margin: 20px 0;">
-                <div style="font-size: 14px; color: #ccc;">Итого к оплате:</div>
-                <div style="font-size: 36px; font-weight: bold; color: #4CAF50;" id="posPaymentTotal">$0.00</div>
+            <span class="close" onclick="closeModal('sellInventoryModal')">&times;</span>
+            <h2>Продажа товара</h2>
+            <div class="form-group">
+                <label>Источник товара</label>
+                <select id="sellSourceType" required>
+                    <option value="stock">Со склада</option>
+                    <option value="dismantled">С разобранной машины</option>
+                </select>
             </div>
             <div class="form-group">
-                <label>Способ оплаты</label>
-                <select id="posPaymentMethod" required>
-                    <option value="cash">Наличные</option>
-                    <option value="card">Банковская карта</option>
-                    <option value="transfer">Перевод</option>
+                <label>Количество</label>
+                <input type="number" id="sellQuantity" min="1" required>
+            </div>
+            <div class="form-group">
+                <label>Цена продажи (за единицу)</label>
+                <input type="number" id="sellSalePrice" step="0.01" required>
+            </div>
+            <div class="form-group">
+                <label>Валюта</label>
+                <select id="sellCurrency" required>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="GEL">GEL (₾)</option>
+                    <option value="RUB">RUB (₽)</option>
                 </select>
             </div>
             <div class="form-group">
                 <label>Покупатель (опционально)</label>
-                <input type="text" id="posBuyerName" placeholder="Имя покупателя">
+                <input type="text" id="sellBuyerName">
             </div>
             <div class="form-group">
-                <label>Телефон</label>
-                <input type="tel" id="posBuyerPhone" placeholder="+995 555 123 456">
+                <label>Телефон покупателя</label>
+                <input type="tel" id="sellBuyerPhone">
             </div>
             <div class="form-group">
                 <label>Заметки</label>
-                <textarea id="posPaymentNotes" rows="2" placeholder="Комментарий к продаже"></textarea>
+                <textarea id="sellNotes" rows="2"></textarea>
             </div>
-            <button class="btn" onclick="posConfirmPayment()" style="width: 100%; padding: 15px; font-size: 18px;">✓ Подтвердить оплату</button>
+            <button class="btn" onclick="sellInventory()">Продать</button>
+        </div>
+    </div>
+
+    <!-- Procurement Modal -->
+    <div id="procurementModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('procurementModal')">&times;</span>
+            <h2>Новая закупка</h2>
+            <p style="color: #ff9800; padding: 10px; background: #3d3d3d; border-radius: 8px; margin-bottom: 20px;">
+                ⚠️ Функция находится в разработке
+            </p>
+        </div>
+    </div>
+
+    <!-- POS Checkout Modal (NEW) -->
+    <div id="posCheckoutModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('posCheckoutModal')">&times;</span>
+            <h2>Оформление продажи</h2>
+            
+            <div style="margin-bottom: 20px;">
+                <h3>Товары в чеке:</h3>
+                <div id="posCheckoutItemsList" style="max-height: 200px; overflow-y: auto; background: #3d3d3d; padding: 15px; border-radius: 8px; margin-top: 10px;">
+                    <!-- Items list -->
+                </div>
+            </div>
+            
+            <div style="background: #3d3d3d; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                    <strong>Сумма без скидки:</strong>
+                    <strong id="posCheckoutSubtotal">$0.00</strong>
+                </div>
+                
+                <div class="form-group">
+                    <label>Скидка:</label>
+                    <div style="display: flex; gap: 10px;">
+                        <select id="posDiscountType" onchange="calculatePOSDiscount()">
+                            <option value="none">Без скидки</option>
+                            <option value="percent">Процент (%)</option>
+                            <option value="amount">Сумма ($)</option>
+                        </select>
+                        <input type="number" id="posDiscountValue" placeholder="0" min="0" step="0.01" oninput="calculatePOSDiscount()" disabled>
+                    </div>
+                </div>
+                
+                <div style="display: flex; justify-content: space-between; font-size: 20px; font-weight: bold; color: #4CAF50; margin-top: 15px; padding-top: 15px; border-top: 2px solid #4CAF50;">
+                    <span>К ОПЛАТЕ:</span>
+                    <span id="posCheckoutFinal">$0.00</span>
+                </div>
+            </div>
+            
+            <button class="btn" style="width: 100%; padding: 15px; font-size: 18px;" onclick="completePOSSale()">✅ Завершить продажу</button>
+        </div>
+    </div>
+
+    <!-- Receiving Interface Modal (NEW) -->
+    <div id="receivingModal" class="modal">
+        <div class="modal-content" style="max-width: 900px;">
+            <span class="close" onclick="closeModal('receivingModal')">&times;</span>
+            <h2>Оприходование товаров</h2>
+            
+            <div style="margin-bottom: 20px;">
+                <button class="btn" onclick="showReceivingSearch()">🔍 Добавить товар</button>
+            </div>
+            
+            <div id="receivingItemsList">
+                <p style="color: #ccc; text-align: center; padding: 40px;">
+                    Нажмите "Добавить товар" для начала оприходования
+                </p>
+            </div>
+            
+            <div style="margin-top: 20px; display: none;" id="receivingSaveBtn">
+                <button class="btn" style="width: 100%; padding: 15px;" onclick="saveReceiving()">💾 Сохранить оприходование</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Product Search Modal for Receiving (NEW) -->
+    <div id="receivingSearchModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('receivingSearchModal')">&times;</span>
+            <h2>Выберите товар</h2>
+            
+            <div class="pos-search">
+                <input type="text" id="receivingSearchInput" placeholder="🔍 Поиск товара..." oninput="searchReceivingProducts()">
+            </div>
+            
+            <div class="pos-breadcrumb" id="receivingBreadcrumb">
+                <div class="pos-breadcrumb-item" onclick="loadReceivingCategories()">📦 Все категории</div>
+            </div>
+            
+            <div class="pos-items-list" id="receivingSearchList">
+                <!-- Dynamic content -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Product Prices Modal (NEW) -->
+    <div id="editProductModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('editProductModal')">&times;</span>
+            <h2>Редактировать товар</h2>
+            
+            <div class="form-group">
+                <label>Название</label>
+                <input type="text" id="editProductName" readonly style="background: #2d2d2d;">
+            </div>
+            
+            <div class="form-group">
+                <label>SKU</label>
+                <input type="text" id="editProductSKU">
+            </div>
+            
+            <div class="form-group">
+                <label>Цена закупки ($)</label>
+                <input type="number" id="editProductPurchasePrice" step="0.01" min="0">
+            </div>
+            
+            <div class="form-group">
+                <label>Цена продажи ($)</label>
+                <input type="number" id="editProductSalePrice" step="0.01" min="0">
+            </div>
+            
+            <div class="form-group">
+                <label>Минимальный остаток</label>
+                <input type="number" id="editProductMinStock" min="0">
+            </div>
+            
+            <button class="btn" onclick="saveProductEdit()">💾 Сохранить изменения</button>
         </div>
     </div>
 
     <script src="app.js"></script>
 </body>
-</html>
+                                            </html>
