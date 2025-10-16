@@ -890,7 +890,6 @@ app.post('/api/warehouse/inventory/receive-batch', authenticateToken, async (req
   `);
   console.log(result);
 })();
-        i.*,
         CASE 
           WHEN i.source_type = 'dismantled' THEN c.brand || ' ' || c.model || ' ' || COALESCE(c.year::text, '')
           ELSE 'Закупка'
