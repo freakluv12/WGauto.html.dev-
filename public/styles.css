@@ -547,6 +547,24 @@ body {
     text-transform: uppercase;
     font-size: 12px;
     letter-spacing: 0.5px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s;
+}
+
+.analytics-table thead th:hover {
+    background: #4d4d4d;
+}
+
+.analytics-table thead th.sorted-asc,
+.analytics-table thead th.sorted-desc {
+    background: #4CAF50;
+    color: #fff;
+}
+
+.analytics-table .sort-arrow {
+    margin-left: 5px;
+    font-size: 10px;
 }
 
 .analytics-table tbody td {
@@ -1035,4 +1053,4 @@ body {
         background: white;
         color: black;
     }
-}
+        }
