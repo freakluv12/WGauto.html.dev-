@@ -158,6 +158,16 @@ body {
     background: #da190b;
 }
 
+.btn-disabled {
+    background: #666 !important;
+    cursor: not-allowed !important;
+    opacity: 0.5;
+}
+
+.btn-disabled:hover {
+    background: #666 !important;
+}
+
 /* Forms */
 .form-group {
     margin-bottom: 15px;
@@ -1053,4 +1063,4 @@ body {
         background: white;
         color: black;
     }
-        }
+    }
