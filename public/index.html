@@ -156,12 +156,10 @@
                     <div class="section-title">Warehouse Management</div>
                 </div>
 
-                <div id="warehouseActionBar" class="warehouse-action-bar">
-                    <button class="btn" onclick="showWarehouseAction('stock')">📦 Склад</button>
-                    <button class="btn" onclick="showWarehouseAction('receive')">📥 Оприходование</button>
-                    <button class="btn" onclick="showWarehouseAction('sell')">💰 Продажа</button>
-                    <button class="btn" onclick="showWarehouseAction('procurement')">🛒 Закупка</button>
-                    <button class="btn" onclick="showWarehouseAction('analytics')">📊 Аналитика</button>
+                <div class="warehouse-tabs">
+                    <button class="warehouse-tab active" onclick="showWarehouseTab('stock')">📦 Склад</button>
+                    <button class="warehouse-tab" onclick="showWarehouseTab('receive')">📥 Оприходование</button>
+                    <button class="warehouse-tab" onclick="showWarehouseTab('procurement')">🛒 Закупки</button>
                 </div>
 
                 <div id="warehouseContent"></div>
@@ -192,10 +190,13 @@
                         </div>
                         
                         <div class="pos-totals">
+                            <div class="pos-total-row">
+                                <span>Подытог:</span>
+                                <span id="posSubtotal">0.00</span>
+                            </div>
                             <div class="pos-total-row final">
                                 <span>ИТОГО:</span>
-                                <span id="posTotal">0</span>
-                                <span>шт</span>
+                                <span id="posTotal">0.00</span>
                             </div>
                         </div>
                         
@@ -476,7 +477,30 @@
                 <p><strong>Всего на складе:</strong> <span id="productDetailsTotal" style="font-weight: bold; color: #4CAF50;"></span></p>
             </div>
 
-            <h3>Складские позиции</h3>
+            <h3>Редактировать цены</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                <div class="form-group">
+                    <label>Цена закупа</label>
+                    <input type="number" id="editPurchasePrice" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Цена продажи</label>
+                    <input type="number" id="editSalePrice" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Валюта</label>
+                    <select id="editCurrency">
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                        <option value="GEL">GEL</option>
+                        <option value="RUB">RUB</option>
+                    </select>
+                </div>
+            </div>
+            <button class="btn" onclick="updateProductPrices()">Сохранить цены</button>
+
+            <h3 style="margin-top: 30px;">Складские позиции</h3>
+            <p style="color: #999; font-size: 14px; margin-bottom: 10px;">Количество меняется только при продаже или списании</p>
             <table class="table" id="productInventoryTable">
                 <thead>
                     <tr>
@@ -493,154 +517,73 @@
         </div>
     </div>
 
-    <!-- Receive Inventory Modal -->
-    <div id="receiveInventoryModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('receiveInventoryModal')">&times;</span>
-            <h2>Оприходование товара</h2>
-            <p style="color: #ccc; margin-bottom: 15px;">Добавьте остатки к существующему товару</p>
-            <div class="form-group">
-                <label>Источник поступления</label>
-                <select id="receiveSourceType" required>
-                    <option value="purchased">Закупка</option>
-                    <option value="dismantled">С разобранной машины</option>
-                </select>
+    <!-- Product Search Modal (for receive) -->
+    <div id="productSearchModal" class="modal">
+        <div class="modal-content" style="max-width: 800px;">
+            <span class="close" onclick="closeModal('productSearchModal')">&times;</span>
+            <h2>Выберите товар</h2>
+            
+            <div class="pos-search" style="margin-bottom: 20px;">
+                <input type="text" id="productSearchInput" placeholder="🔍 Поиск товара..." oninput="searchProductsInModal()">
             </div>
-            <div class="form-group">
-                <label>Количество</label>
-                <input type="number" id="receiveQuantity" min="1" required>
-            </div>
-            <div class="form-group">
-                <label>Цена закупки (за единицу)</label>
-                <input type="number" id="receivePurchasePrice" step="0.01">
-            </div>
-            <div class="form-group">
-                <label>Валюта</label>
-                <select id="receiveCurrency">
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="GEL">GEL (₾)</option>
-                    <option value="RUB">RUB (₽)</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Место хранения</label>
-                <input type="text" id="receiveLocation" placeholder="Стеллаж A-5">
-            </div>
-            <button class="btn" onclick="receiveInventory()">Оприходовать</button>
+            
+            <div id="productSearchContent"></div>
         </div>
     </div>
 
-    <!-- Sell Inventory Modal -->
-    <div id="sellInventoryModal" class="modal">
+    <!-- Complete Sale Modal -->
+    <div id="completeSaleModal" class="modal">
         <div class="modal-content">
-            <span class="close" onclick="closeModal('sellInventoryModal')">&times;</span>
-            <h2>Продажа товара</h2>
-            <div class="form-group">
-                <label>Количество</label>
-                <input type="number" id="sellQuantity" min="1" required>
-            </div>
-            <div class="form-group">
-                <label>Цена продажи (за единицу)</label>
-                <input type="number" id="sellSalePrice" step="0.01" required>
-            </div>
-            <div class="form-group">
-                <label>Валюта</label>
-                <select id="sellCurrency" required>
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="GEL">GEL (₾)</option>
-                    <option value="RUB">RUB (₽)</option>
-                </select>
-            </div>
+            <span class="close" onclick="closeModal('completeSaleModal')">&times;</span>
+            <h2>Детали продажи</h2>
+            
             <div class="form-group">
                 <label>Покупатель (опционально)</label>
-                <input type="text" id="sellBuyerName">
+                <input type="text" id="saleBuyerName" placeholder="Имя покупателя">
             </div>
-            <div class="form-group">
-                <label>Телефон покупателя</label>
-                <input type="tel" id="sellBuyerPhone">
-            </div>
-            <div class="form-group">
-                <label>Заметки</label>
-                <textarea id="sellNotes" rows="2"></textarea>
-            </div>
-            <button class="btn" onclick="sellInventory()">Продать</button>
-        </div>
-    </div>
-
-    <!-- Procurement Modal -->
-    <div id="procurementModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal('procurementModal')">&times;</span>
-            <h2>Новая закупка</h2>
-            <div class="form-group">
-                <label>Поставщик</label>
-                <input type="text" id="procurementSupplier">
-            </div>
-            <div class="form-group">
-                <label>Номер накладной</label>
-                <input type="text" id="procurementInvoice">
-            </div>
-            <div class="form-group">
-                <label>Дата закупки</label>
-                <input type="date" id="procurementDate" required>
-            </div>
-            <div class="form-group">
-                <label>Валюта</label>
-                <select id="procurementCurrency">
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="GEL">GEL (₾)</option>
-                    <option value="RUB">RUB (₽)</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Заметки</label>
-                <textarea id="procurementNotes" rows="2"></textarea>
-            </div>
-            <button class="btn" onclick="createProcurement()">Создать закупку</button>
-        </div>
-    </div>
-
-    <!-- Analytics Modal -->
-    <div id="analyticsModal" class="modal">
-        <div class="modal-content" style="max-width: 1000px;">
-            <span class="close" onclick="closeModal('analyticsModal')">&times;</span>
-            <h2>Аналитика продаж</h2>
             
-            <div style="display: flex; gap: 15px; margin-bottom: 20px;">
-                <div class="form-group" style="flex: 1;">
-                    <label>Начальная дата</label>
-                    <input type="date" id="analyticsStartDate">
+            <div class="form-group">
+                <label>Телефон</label>
+                <input type="tel" id="saleBuyerPhone" placeholder="Телефон покупателя">
+            </div>
+            
+            <h3 style="margin-top: 20px;">Скидка</h3>
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px; margin-bottom: 20px;">
+                <div class="form-group">
+                    <label>Размер скидки</label>
+                    <input type="number" id="saleDiscountInput" step="0.01" min="0" placeholder="0" oninput="applySaleDiscount()">
                 </div>
-                <div class="form-group" style="flex: 1;">
-                    <label>Конечная дата</label>
-                    <input type="date" id="analyticsEndDate">
-                </div>
-                <div style="display: flex; align-items: flex-end;">
-                    <button class="btn" onclick="loadAnalytics()">Применить</button>
+                <div class="form-group">
+                    <label>Тип</label>
+                    <div style="display: flex; gap: 10px; margin-top: 5px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="radio" name="discountType" value="amount" checked onchange="applySaleDiscount()">
+                            <span style="margin-left: 5px;">$</span>
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="radio" name="discountType" value="percent" onchange="applySaleDiscount()">
+                            <span style="margin-left: 5px;">%</span>
+                        </label>
+                    </div>
                 </div>
             </div>
-
-            <h3>Итоги за период</h3>
-            <div class="profit-summary" id="analyticsTotals"></div>
-
-            <h3 style="margin-top: 30px;">Детализация по товарам</h3>
-            <table class="table" id="analyticsTable">
-                <thead>
-                    <tr>
-                        <th>Товар</th>
-                        <th>Категория</th>
-                        <th>Продано</th>
-                        <th>Оборот</th>
-                        <th>Себестоимость</th>
-                        <th>Прибыль</th>
-                        <th>Рентабельность</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
+            
+            <div style="background: #3d3d3d; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <div class="pos-total-row">
+                    <span>Подытог:</span>
+                    <span id="saleSubtotal">0.00</span>
+                </div>
+                <div class="pos-total-row">
+                    <span>Скидка:</span>
+                    <span id="saleDiscount" style="color: #f44336;">0.00</span>
+                </div>
+                <div class="pos-total-row final">
+                    <span>ИТОГО К ОПЛАТЕ:</span>
+                    <span id="saleTotal">0.00</span>
+                </div>
+            </div>
+            
+            <button class="btn" onclick="confirmSale()" style="width: 100%; padding: 15px; font-size: 18px;">Подтвердить продажу</button>
         </div>
     </div>
 
