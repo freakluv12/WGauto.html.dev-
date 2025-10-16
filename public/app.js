@@ -16,51 +16,19 @@ let subcategories = [];
 let products = [];
 let inventory = [];
 
+// POS variables
+let posCart = [];
+let posCategories = [];
+let posSubcategories = [];
+let posProducts = [];
+let posInventory = [];
+let posCurrentCategoryId = null;
+let posCurrentSubcategoryId = null;
+
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
     checkAuthStatus();
 });
-
-// Notification system
-function showNotification(message, type = 'info') {
-    const notification = document.createElement('div');
-    notification.className = `notification notification-${type}`;
-    notification.innerHTML = `
-        <span>${message}</span>
-        <button onclick="this.parentElement.remove()">&times;</button>
-    `;
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-        notification.classList.add('fade-out');
-        setTimeout(() => notification.remove(), 300);
-    }, 3000);
-}
-
-// Loader functions
-function showLoader(text = 'Loading...') {
-    let loader = document.getElementById('globalLoader');
-    if (!loader) {
-        loader = document.createElement('div');
-        loader.id = 'globalLoader';
-        loader.className = 'global-loader';
-        loader.innerHTML = `
-            <div class="loader-content">
-                <div class="spinner"></div>
-                <div class="loader-text">${text}</div>
-            </div>
-        `;
-        document.body.appendChild(loader);
-    }
-    loader.style.display = 'flex';
-}
-
-function hideLoader() {
-    const loader = document.getElementById('globalLoader');
-    if (loader) {
-        loader.style.display = 'none';
-    }
-}
 
 // Currency helper
 function getCurrencySymbol(currency) {
@@ -118,11 +86,10 @@ async function attemptLogin() {
     const password = document.getElementById('loginPassword').value;
 
     if (!email || !password) {
-        showNotification('Please enter email and password', 'error');
+        alert('Please enter email and password');
         return;
     }
 
-    showLoader('Logging in...');
     try {
         const response = await fetch('/api/auth/login', {
             method: 'POST',
@@ -136,17 +103,14 @@ async function attemptLogin() {
             localStorage.setItem('userEmail', data.user.email);
             localStorage.setItem('userRole', data.user.role);
             currentUser = data.user;
-            showNotification('Login successful!', 'success');
             showApp();
         } else {
             const error = await response.json();
-            showNotification('Login failed: ' + (error.error || 'Unknown error'), 'error');
+            alert('Login failed: ' + (error.error || 'Unknown error'));
         }
     } catch (error) {
         console.error('Login error:', error);
-        showNotification('Login error: Cannot connect to server', 'error');
-    } finally {
-        hideLoader();
+        alert('Login error: Cannot connect to server');
     }
 }
 
@@ -155,11 +119,10 @@ async function attemptRegister() {
     const password = document.getElementById('registerPassword').value;
 
     if (!email || !password) {
-        showNotification('Please enter email and password', 'error');
+        alert('Please enter email and password');
         return;
     }
 
-    showLoader('Registering...');
     try {
         const response = await fetch('/api/auth/register', {
             method: 'POST',
@@ -173,17 +136,14 @@ async function attemptRegister() {
             localStorage.setItem('userEmail', data.user.email);
             localStorage.setItem('userRole', data.user.role);
             currentUser = data.user;
-            showNotification('Registration successful!', 'success');
             showApp();
         } else {
             const error = await response.json();
-            showNotification('Registration failed: ' + error.error, 'error');
+            alert('Registration failed: ' + error.error);
         }
     } catch (error) {
         console.error('Registration error:', error);
-        showNotification('Registration error: Cannot connect to server', 'error');
-    } finally {
-        hideLoader();
+        alert('Registration error: Cannot connect to server');
     }
 }
 
@@ -192,7 +152,6 @@ function logout() {
     localStorage.removeItem('userEmail');
     localStorage.removeItem('userRole');
     currentUser = null;
-    showNotification('Logged out successfully', 'info');
     showAuth();
 }
 
@@ -222,7 +181,6 @@ async function apiCall(endpoint, options = {}) {
         const response = await fetch(endpoint, { ...defaultOptions, ...options });
         
         if (response.status === 401) {
-            showNotification('Session expired. Please login again.', 'error');
             logout();
             return null;
         }
@@ -230,7 +188,6 @@ async function apiCall(endpoint, options = {}) {
         return response;
     } catch (error) {
         console.error('API call error:', error);
-        showNotification('Network error. Please check your connection.', 'error');
         return null;
     }
 }
@@ -256,6 +213,7 @@ function showSection(sectionName) {
         cars: 'Cars',
         rentals: 'Rentals',
         warehouse: 'Warehouse',
+        pos: 'Point of Sale',
         admin: 'Admin Panel'
     };
     document.getElementById('pageTitle').textContent = titles[sectionName];
@@ -273,6 +231,9 @@ function showSection(sectionName) {
         case 'warehouse':
             loadWarehouse();
             break;
+        case 'pos':
+            loadPOS();
+            break;
         case 'admin':
             loadUsers();
             break;
@@ -281,7 +242,6 @@ function showSection(sectionName) {
 
 // Dashboard
 async function loadDashboard() {
-    showLoader('Loading dashboard...');
     try {
         const response = await apiCall('/api/stats/dashboard');
         if (!response) return;
@@ -341,15 +301,11 @@ async function loadDashboard() {
     } catch (error) {
         console.error('Dashboard load error:', error);
         document.getElementById('statsGrid').innerHTML = '<div class="loading">Error loading dashboard data</div>';
-        showNotification('Failed to load dashboard', 'error');
-    } finally {
-        hideLoader();
     }
 }
 
 // Cars functions
 async function loadCars() {
-    showLoader('Loading cars...');
     try {
         const response = await apiCall('/api/cars');
         if (!response) return;
@@ -360,9 +316,6 @@ async function loadCars() {
     } catch (error) {
         console.error('Cars load error:', error);
         document.getElementById('carsGrid').innerHTML = '<div class="loading">Error loading cars</div>';
-        showNotification('Failed to load cars', 'error');
-    } finally {
-        hideLoader();
     }
 }
 
@@ -430,11 +383,10 @@ async function addCar() {
     };
 
     if (!carData.brand || !carData.model) {
-        showNotification('Brand and model are required', 'error');
+        alert('Brand and model are required');
         return;
     }
 
-    showLoader('Adding car...');
     try {
         const response = await apiCall('/api/cars', {
             method: 'POST',
@@ -443,7 +395,6 @@ async function addCar() {
 
         if (response && response.ok) {
             closeModal('addCarModal');
-            showNotification('Car added successfully!', 'success');
             loadCars();
             document.getElementById('carBrand').value = '';
             document.getElementById('carModel').value = '';
@@ -451,23 +402,15 @@ async function addCar() {
             document.getElementById('carVin').value = '';
             document.getElementById('carPrice').value = '';
         } else {
-            const error = await response.json();
-            showNotification('Failed to add car: ' + (error.error || 'Unknown error'), 'error');
+            alert('Failed to add car');
         }
     } catch (error) {
-        showNotification('Error adding car: ' + error.message, 'error');
-    } finally {
-        hideLoader();
+        alert('Error adding car: ' + error.message);
     }
 }
 
-// Continue in Part 2...
-// Continuation of app.js (Part 2/2)
-// Car details and other functions...
-
 async function showCarDetails(carId) {
     currentCarId = carId;
-    showLoader('Loading car details...');
     
     try {
         const response = await apiCall(`/api/cars/${carId}/details`);
@@ -502,9 +445,7 @@ async function showCarDetails(carId) {
         document.getElementById('carDetailsModal').style.display = 'block';
     } catch (error) {
         console.error('Car details error:', error);
-        showNotification('Error loading car details', 'error');
-    } finally {
-        hideLoader();
+        alert('Error loading car details');
     }
 }
 
@@ -598,11 +539,10 @@ async function addExpense() {
     };
 
     if (!expenseData.amount || !expenseData.currency || !expenseData.category) {
-        showNotification('Amount, currency, and category are required', 'error');
+        alert('Amount, currency, and category are required');
         return;
     }
 
-    showLoader('Adding expense...');
     try {
         const response = await apiCall(`/api/cars/${currentCarId}/expense`, {
             method: 'POST',
@@ -612,16 +552,12 @@ async function addExpense() {
         if (response && response.ok) {
             document.getElementById('expenseAmount').value = '';
             document.getElementById('expenseDescription').value = '';
-            showNotification('Expense added successfully!', 'success');
             showCarDetails(currentCarId);
         } else {
-            const error = await response.json();
-            showNotification('Failed to add expense: ' + (error.error || 'Unknown error'), 'error');
+            alert('Failed to add expense');
         }
     } catch (error) {
-        showNotification('Error adding expense: ' + error.message, 'error');
-    } finally {
-        hideLoader();
+        alert('Error adding expense: ' + error.message);
     }
 }
 
@@ -630,23 +566,20 @@ async function dismantleCar() {
         return;
     }
 
-    showLoader('Dismantling car...');
     try {
         const response = await apiCall(`/api/cars/${currentCarId}/dismantle`, {
             method: 'POST'
         });
 
         if (response && response.ok) {
-            showNotification('Car dismantled successfully', 'success');
+            alert('Car dismantled successfully');
             closeModal('carDetailsModal');
             loadCars();
         } else {
-            showNotification('Failed to dismantle car', 'error');
+            alert('Failed to dismantle car');
         }
     } catch (error) {
-        showNotification('Error dismantling car: ' + error.message, 'error');
-    } finally {
-        hideLoader();
+        alert('Error dismantling car: ' + error.message);
     }
 }
 
@@ -669,7 +602,6 @@ function showCarTab(tabName) {
 
 // Rentals
 async function loadRentals() {
-    showLoader('Loading rentals...');
     try {
         const response = await apiCall('/api/rentals');
         if (!response) return;
@@ -681,9 +613,6 @@ async function loadRentals() {
         await loadAvailableCarsForRental();
     } catch (error) {
         console.error('Rentals load error:', error);
-        showNotification('Failed to load rentals', 'error');
-    } finally {
-        hideLoader();
     }
 }
 
@@ -791,11 +720,10 @@ async function addRental() {
     };
 
     if (!rentalData.car_id || !rentalData.client_name || !rentalData.start_date || !rentalData.end_date || !rentalData.daily_price) {
-        showNotification('Please fill in all required fields', 'error');
+        alert('Please fill in all required fields');
         return;
     }
 
-    showLoader('Creating rental...');
     try {
         const response = await apiCall('/api/rentals', {
             method: 'POST',
@@ -804,7 +732,6 @@ async function addRental() {
 
         if (response && response.ok) {
             closeModal('addRentalModal');
-            showNotification('Rental created successfully!', 'success');
             loadRentals();
             document.getElementById('rentalCar').value = '';
             document.getElementById('rentalClient').value = '';
@@ -814,12 +741,10 @@ async function addRental() {
             document.getElementById('rentalPrice').value = '';
         } else {
             const error = await response.json();
-            showNotification('Failed to create rental: ' + (error.error || 'Unknown error'), 'error');
+            alert('Failed to create rental: ' + (error.error || 'Unknown error'));
         }
     } catch (error) {
-        showNotification('Error creating rental: ' + error.message, 'error');
-    } finally {
-        hideLoader();
+        alert('Error creating rental: ' + error.message);
     }
 }
 
@@ -828,23 +753,20 @@ async function completeRental(rentalId) {
         return;
     }
 
-    showLoader('Completing rental...');
     try {
         const response = await apiCall(`/api/rentals/${rentalId}/complete`, {
             method: 'POST'
         });
 
         if (response && response.ok) {
-            showNotification('Rental completed successfully', 'success');
+            alert('Rental completed successfully');
             loadRentals();
             loadDashboard();
         } else {
-            showNotification('Failed to complete rental', 'error');
+            alert('Failed to complete rental');
         }
     } catch (error) {
-        showNotification('Error completing rental: ' + error.message, 'error');
-    } finally {
-        hideLoader();
+        alert('Error completing rental: ' + error.message);
     }
 }
 
@@ -915,7 +837,6 @@ function changeMonth(direction) {
     loadRentalCalendar();
 }
 
-// Continue with warehouse functions in next response...
 // ==================== WAREHOUSE FUNCTIONS ====================
 
 async function loadWarehouse() {
@@ -928,7 +849,6 @@ function hideWarehouseActionBar() {
 }
 
 async function loadCategories() {
-    showLoader('Loading categories...');
     try {
         const response = await apiCall('/api/warehouse/categories');
         if (!response) return;
@@ -966,9 +886,6 @@ async function loadCategories() {
         currentProductId = null;
     } catch (error) {
         console.error('Load categories error:', error);
-        showNotification('Failed to load categories', 'error');
-    } finally {
-        hideLoader();
     }
 }
 
@@ -977,7 +894,6 @@ async function loadSubcategories(categoryId) {
     currentSubcategoryId = null;
     currentProductId = null;
     
-    showLoader('Loading subcategories...');
     try {
         const response = await apiCall(`/api/warehouse/subcategories/${categoryId}`);
         if (!response) return;
@@ -1015,9 +931,6 @@ async function loadSubcategories(categoryId) {
         `;
     } catch (error) {
         console.error('Load subcategories error:', error);
-        showNotification('Failed to load subcategories', 'error');
-    } finally {
-        hideLoader();
     }
 }
 
@@ -1025,7 +938,6 @@ async function loadProducts(subcategoryId) {
     currentSubcategoryId = subcategoryId;
     currentProductId = null;
     
-    showLoader('Loading products...');
     try {
         const response = await apiCall(`/api/warehouse/products/${subcategoryId}`);
         if (!response) return;
@@ -1067,6 +979,7 @@ async function loadProducts(subcategoryId) {
                                 <td>${p.first_received ? new Date(p.first_received).toLocaleDateString() : 'N/A'}</td>
                                 <td>
                                     <button class="btn" onclick="showProductDetails(${p.id})">Детали</button>
+                                    <button class="btn" onclick="showReceiveInventoryForProduct(${p.id})">Оприходовать</button>
                                 </td>
                             </tr>
                         `).join('')}
@@ -1087,16 +1000,12 @@ async function loadProducts(subcategoryId) {
         `;
     } catch (error) {
         console.error('Load products error:', error);
-        showNotification('Failed to load products', 'error');
-    } finally {
-        hideLoader();
     }
 }
 
 async function showProductDetails(productId) {
     currentProductId = productId;
     
-    showLoader('Loading product details...');
     try {
         const response = await apiCall(`/api/warehouse/inventory/${productId}`);
         if (!response) return;
@@ -1129,16 +1038,17 @@ async function showProductDetails(productId) {
         document.getElementById('productDetailsModal').style.display = 'block';
     } catch (error) {
         console.error('Show product details error:', error);
-        showNotification('Failed to load product details', 'error');
-    } finally {
-        hideLoader();
     }
 }
 
 function showWarehouseAction(action) {
     switch(action) {
         case 'receive':
-            showReceiveInventoryModal();
+            if (!currentProductId && products.length > 0) {
+                alert('Выберите товар из списка для оприходования');
+                return;
+            }
+            showReceiveInventoryForProduct(currentProductId || products[0]?.id);
             break;
         case 'sell':
             showSellInventoryModal();
@@ -1167,11 +1077,10 @@ async function addCategory() {
     };
     
     if (!data.name) {
-        showNotification('Название обязательно', 'error');
+        alert('Название обязательно');
         return;
     }
     
-    showLoader('Adding category...');
     try {
         const response = await apiCall('/api/warehouse/categories', {
             method: 'POST',
@@ -1183,16 +1092,12 @@ async function addCategory() {
             document.getElementById('categoryName').value = '';
             document.getElementById('categoryDescription').value = '';
             document.getElementById('categoryIcon').value = '';
-            showNotification('Category added successfully!', 'success');
             loadCategories();
         } else {
-            const error = await response.json();
-            showNotification('Failed to add category: ' + (error.error || 'Unknown error'), 'error');
+            alert('Failed to add category');
         }
     } catch (error) {
-        showNotification('Error: ' + error.message, 'error');
-    } finally {
-        hideLoader();
+        alert('Error: ' + error.message);
     }
 }
 
@@ -1208,11 +1113,10 @@ async function addSubcategory() {
     };
     
     if (!data.name) {
-        showNotification('Название обязательно', 'error');
+        alert('Название обязательно');
         return;
     }
     
-    showLoader('Adding subcategory...');
     try {
         const response = await apiCall('/api/warehouse/subcategories', {
             method: 'POST',
@@ -1223,16 +1127,12 @@ async function addSubcategory() {
             closeModal('addSubcategoryModal');
             document.getElementById('subcategoryName').value = '';
             document.getElementById('subcategoryDescription').value = '';
-            showNotification('Subcategory added successfully!', 'success');
             loadSubcategories(currentCategoryId);
         } else {
-            const error = await response.json();
-            showNotification('Failed to add subcategory: ' + (error.error || 'Unknown error'), 'error');
+            alert('Failed to add subcategory');
         }
     } catch (error) {
-        showNotification('Error: ' + error.message, 'error');
-    } finally {
-        hideLoader();
+        alert('Error: ' + error.message);
     }
 }
 
@@ -1250,11 +1150,10 @@ async function addProduct() {
     };
     
     if (!data.name) {
-        showNotification('Название обязательно', 'error');
+        alert('Название обязательно');
         return;
     }
     
-    showLoader('Adding product...');
     try {
         const response = await apiCall('/api/warehouse/products', {
             method: 'POST',
@@ -1267,69 +1166,23 @@ async function addProduct() {
             document.getElementById('productDescription').value = '';
             document.getElementById('productSKU').value = '';
             document.getElementById('productMinStock').value = '';
-            showNotification('Product added successfully!', 'success');
             loadProducts(currentSubcategoryId);
         } else {
-            const error = await response.json();
-            showNotification('Failed to add product: ' + (error.error || 'Unknown error'), 'error');
+            alert('Failed to add product');
         }
     } catch (error) {
-        showNotification('Error: ' + error.message, 'error');
-    } finally {
-        hideLoader();
+        alert('Error: ' + error.message);
     }
 }
 
-// ========== НОВЫЕ РЕАЛИЗОВАННЫЕ ФУНКЦИИ ==========
-
-async function showReceiveInventoryModal() {
-    showLoader('Loading products...');
-    try {
-        // Загружаем все товары для выбора
-        const categoriesResponse = await apiCall('/api/warehouse/categories');
-        if (!categoriesResponse) return;
-        
-        const allCategories = await categoriesResponse.json();
-        
-        // Загружаем все товары из всех категорий
-        let allProducts = [];
-        for (const category of allCategories) {
-            const subsResponse = await apiCall(`/api/warehouse/subcategories/${category.id}`);
-            if (subsResponse) {
-                const subs = await subsResponse.json();
-                for (const sub of subs) {
-                    const prodsResponse = await apiCall(`/api/warehouse/products/${sub.id}`);
-                    if (prodsResponse) {
-                        const prods = await prodsResponse.json();
-                        allProducts = [...allProducts, ...prods.map(p => ({...p, categoryName: category.name, subName: sub.name}))];
-                    }
-                }
-            }
-        }
-        
-        // Заполняем select с товарами
-        let productsHTML = '<option value="">Выберите товар...</option>';
-        allProducts.forEach(product => {
-            productsHTML += `<option value="${product.id}">${product.categoryName} > ${product.subName} > ${product.name}</option>`;
-        });
-        
-        const productSelect = document.getElementById('receiveProduct');
-        if (productSelect) {
-            productSelect.innerHTML = productsHTML;
-        }
-        
-        document.getElementById('receiveInventoryModal').style.display = 'block';
-    } catch (error) {
-        console.error('Error loading products for receive:', error);
-        showNotification('Failed to load products', 'error');
-    } finally {
-        hideLoader();
-    }
+function showReceiveInventoryForProduct(productId) {
+    currentProductId = productId;
+    document.getElementById('receiveInventoryModal').style.display = 'block';
 }
 
 async function receiveInventory() {
     const data = {
-        product_id: parseInt(document.getElementById('receiveProduct').value),
+        product_id: currentProductId,
         source_type: document.getElementById('receiveSourceType').value,
         quantity: parseInt(document.getElementById('receiveQuantity').value),
         purchase_price: parseFloat(document.getElementById('receivePurchasePrice').value) || null,
@@ -1337,12 +1190,11 @@ async function receiveInventory() {
         location: document.getElementById('receiveLocation').value
     };
     
-    if (!data.product_id || !data.source_type || !data.quantity || data.quantity <= 0) {
-        showNotification('Заполните все обязательные поля', 'error');
+    if (!data.quantity || data.quantity <= 0) {
+        alert('Введите корректное количество');
         return;
     }
     
-    showLoader('Receiving inventory...');
     try {
         const response = await apiCall('/api/warehouse/inventory/receive', {
             method: 'POST',
@@ -1350,75 +1202,30 @@ async function receiveInventory() {
         });
         
         if (response && response.ok) {
+            alert('Товар успешно оприходован!');
             closeModal('receiveInventoryModal');
-            document.getElementById('receiveProduct').value = '';
             document.getElementById('receiveQuantity').value = '';
             document.getElementById('receivePurchasePrice').value = '';
             document.getElementById('receiveLocation').value = '';
-            showNotification('Товар успешно оприходован!', 'success');
-            
-            // Обновляем список товаров если мы на странице товаров
             if (currentSubcategoryId) {
                 loadProducts(currentSubcategoryId);
             }
         } else {
             const error = await response.json();
-            showNotification('Failed to receive inventory: ' + (error.error || 'Unknown error'), 'error');
+            alert('Ошибка оприходования: ' + (error.error || 'Unknown error'));
         }
     } catch (error) {
-        showNotification('Error: ' + error.message, 'error');
-    } finally {
-        hideLoader();
+        alert('Error: ' + error.message);
     }
 }
 
-async function showSellInventoryModal() {
-    showLoader('Loading products...');
-    try {
-        // Загружаем все товары для выбора
-        const categoriesResponse = await apiCall('/api/warehouse/categories');
-        if (!categoriesResponse) return;
-        
-        const allCategories = await categoriesResponse.json();
-        
-        let allProducts = [];
-        for (const category of allCategories) {
-            const subsResponse = await apiCall(`/api/warehouse/subcategories/${category.id}`);
-            if (subsResponse) {
-                const subs = await subsResponse.json();
-                for (const sub of subs) {
-                    const prodsResponse = await apiCall(`/api/warehouse/products/${sub.id}`);
-                    if (prodsResponse) {
-                        const prods = await prodsResponse.json();
-                        allProducts = [...allProducts, ...prods.map(p => ({...p, categoryName: category.name, subName: sub.name}))];
-                    }
-                }
-            }
-        }
-        
-        // Заполняем select с товарами
-        let productsHTML = '<option value="">Выберите товар...</option>';
-        allProducts.forEach(product => {
-            productsHTML += `<option value="${product.id}">${product.categoryName} > ${product.subName} > ${product.name} (${product.total_quantity || 0} шт.)</option>`;
-        });
-        
-        const productSelect = document.getElementById('sellProduct');
-        if (productSelect) {
-            productSelect.innerHTML = productsHTML;
-        }
-        
-        document.getElementById('sellInventoryModal').style.display = 'block';
-    } catch (error) {
-        console.error('Error loading products for sell:', error);
-        showNotification('Failed to load products', 'error');
-    } finally {
-        hideLoader();
-    }
+function showSellInventoryModal() {
+    document.getElementById('sellInventoryModal').style.display = 'block';
 }
 
 async function sellInventory() {
     const data = {
-        product_id: parseInt(document.getElementById('sellProduct').value),
+        product_id: currentProductId,
         quantity: parseInt(document.getElementById('sellQuantity').value),
         sale_price: parseFloat(document.getElementById('sellSalePrice').value),
         currency: document.getElementById('sellCurrency').value,
@@ -1427,12 +1234,11 @@ async function sellInventory() {
         notes: document.getElementById('sellNotes').value
     };
     
-    if (!data.product_id || !data.quantity || !data.sale_price || data.quantity <= 0) {
-        showNotification('Заполните все обязательные поля', 'error');
+    if (!data.quantity || !data.sale_price || data.quantity <= 0) {
+        alert('Введите корректное количество и цену');
         return;
     }
     
-    showLoader('Selling inventory...');
     try {
         const response = await apiCall('/api/warehouse/sales', {
             method: 'POST',
@@ -1440,51 +1246,83 @@ async function sellInventory() {
         });
         
         if (response && response.ok) {
+            alert('Продажа успешно оформлена!');
             closeModal('sellInventoryModal');
-            document.getElementById('sellProduct').value = '';
             document.getElementById('sellQuantity').value = '';
             document.getElementById('sellSalePrice').value = '';
             document.getElementById('sellBuyerName').value = '';
             document.getElementById('sellBuyerPhone').value = '';
             document.getElementById('sellNotes').value = '';
-            showNotification('Товар успешно продан!', 'success');
-            
-            // Обновляем список товаров если мы на странице товаров
             if (currentSubcategoryId) {
                 loadProducts(currentSubcategoryId);
             }
         } else {
             const error = await response.json();
-            showNotification('Failed to sell inventory: ' + (error.error || 'Unknown error'), 'error');
+            alert('Ошибка продажи: ' + (error.error || 'Unknown error'));
         }
     } catch (error) {
-        showNotification('Error: ' + error.message, 'error');
-    } finally {
-        hideLoader();
+        alert('Error: ' + error.message);
     }
 }
 
 function showProcurementModal() {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('procurementDate').value = today;
     document.getElementById('procurementModal').style.display = 'block';
 }
 
 async function createProcurement() {
+    const items = [];
+    
+    if (currentProductId) {
+        const quantity = prompt('Введите количество товара:');
+        const unitPrice = prompt('Введите цену за единицу:');
+        
+        if (quantity && unitPrice) {
+            items.push({
+                product_id: currentProductId,
+                quantity: parseInt(quantity),
+                unit_price: parseFloat(unitPrice)
+            });
+        }
+    }
+    
+    if (items.length === 0) {
+        alert('Добавьте хотя бы один товар');
+        return;
+    }
+    
+    const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
+    
     const data = {
         supplier_name: document.getElementById('procurementSupplier').value,
         invoice_number: document.getElementById('procurementInvoice').value,
-        procurement_date: document.getElementById('procurementDate').value,
+        total_amount: totalAmount,
         currency: document.getElementById('procurementCurrency').value,
-        notes: document.getElementById('procurementNotes').value
+        notes: document.getElementById('procurementNotes').value,
+        procurement_date: document.getElementById('procurementDate').value,
+        items: items
     };
     
-    showNotification('Функция закупки создана. Используйте "Оприходование" для добавления товаров.', 'info');
-    closeModal('procurementModal');
-    
-    // Очищаем поля
-    document.getElementById('procurementSupplier').value = '';
-    document.getElementById('procurementInvoice').value = '';
-    document.getElementById('procurementDate').value = '';
-    document.getElementById('procurementNotes').value = '';
+    try {
+        const response = await apiCall('/api/warehouse/procurements', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        
+        if (response && response.ok) {
+            alert('Закупка успешно создана!');
+            closeModal('procurementModal');
+            document.getElementById('procurementSupplier').value = '';
+            document.getElementById('procurementInvoice').value = '';
+            document.getElementById('procurementNotes').value = '';
+        } else {
+            const error = await response.json();
+            alert('Ошибка создания закупки: ' + (error.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
 }
 
 async function showAnalyticsModal() {
@@ -1500,7 +1338,6 @@ async function loadAnalytics() {
     if (startDate) url += `start_date=${startDate}&`;
     if (endDate) url += `end_date=${endDate}`;
     
-    showLoader('Loading analytics...');
     try {
         const response = await apiCall(url);
         if (!response) return;
@@ -1531,7 +1368,6 @@ async function loadAnalytics() {
         
         document.querySelector('#analyticsTable tbody').innerHTML = itemsHTML;
         
-        // Display totals
         let totalsHTML = '';
         if (data.totals && data.totals.length > 0) {
             data.totals.forEach(total => {
@@ -1566,10 +1402,321 @@ async function loadAnalytics() {
         
     } catch (error) {
         console.error('Analytics error:', error);
-        showNotification('Failed to load analytics', 'error');
-    } finally {
-        hideLoader();
     }
+}
+
+// ==================== POS SYSTEM ====================
+
+async function loadPOS() {
+    try {
+        const response = await apiCall('/api/warehouse/categories');
+        if (!response) return;
+
+        posCategories = await response.json();
+        posCart = [];
+        posCurrentCategoryId = null;
+        posCurrentSubcategoryId = null;
+        
+        displayPOSCategories();
+        updatePOSReceipt();
+    } catch (error) {
+        console.error('POS load error:', error);
+    }
+}
+
+function displayPOSCategories() {
+    let breadcrumb = '<div class="pos-breadcrumb-item" onclick="displayPOSCategories()">🏠 Главная</div>';
+    
+    let html = '';
+    if (posCategories.length === 0) {
+        html = '<div class="loading">Нет категорий. Создайте категории в разделе "Склад"</div>';
+    } else {
+        html = posCategories.map(cat => `
+            <div class="pos-item" onclick="displayPOSSubcategories(${cat.id})">
+                <div class="pos-item-info">
+                    <div class="pos-item-name">${cat.icon || '📦'} ${cat.name}</div>
+                    <div class="pos-item-stock">${cat.description || ''}</div>
+                </div>
+                <div style="font-size: 24px;">›</div>
+            </div>
+        `).join('');
+    }
+    
+    document.getElementById('posBreadcrumb').innerHTML = breadcrumb;
+    document.getElementById('posItemsList').innerHTML = html;
+}
+
+async function displayPOSSubcategories(categoryId) {
+    posCurrentCategoryId = categoryId;
+    
+    try {
+        const response = await apiCall(`/api/warehouse/subcategories/${categoryId}`);
+        if (!response) return;
+
+        posSubcategories = await response.json();
+        const category = posCategories.find(c => c.id === categoryId);
+        
+        let breadcrumb = `
+            <div class="pos-breadcrumb-item" onclick="displayPOSCategories()">🏠 Главная</div>
+            <div class="pos-breadcrumb-item">${category.name}</div>
+        `;
+        
+        let html = '';
+        if (posSubcategories.length === 0) {
+            html = '<div class="loading">Нет подкатегорий</div>';
+        } else {
+            html = posSubcategories.map(sub => `
+                <div class="pos-item" onclick="displayPOSProducts(${sub.id})">
+                    <div class="pos-item-info">
+                        <div class="pos-item-name">📋 ${sub.name}</div>
+                        <div class="pos-item-stock">${sub.description || ''}</div>
+                    </div>
+                    <div style="font-size: 24px;">›</div>
+                </div>
+            `).join('');
+        }
+        
+        document.getElementById('posBreadcrumb').innerHTML = breadcrumb;
+        document.getElementById('posItemsList').innerHTML = html;
+    } catch (error) {
+        console.error('POS subcategories error:', error);
+    }
+}
+
+async function displayPOSProducts(subcategoryId) {
+    posCurrentSubcategoryId = subcategoryId;
+    
+    try {
+        const response = await apiCall(`/api/warehouse/products/${subcategoryId}`);
+        if (!response) return;
+
+        posProducts = await response.json();
+        const subcategory = posSubcategories.find(s => s.id === subcategoryId);
+        const category = posCategories.find(c => c.id === posCurrentCategoryId);
+        
+        let breadcrumb = `
+            <div class="pos-breadcrumb-item" onclick="displayPOSCategories()">🏠 Главная</div>
+            <div class="pos-breadcrumb-item" onclick="displayPOSSubcategories(${posCurrentCategoryId})">${category.name}</div>
+            <div class="pos-breadcrumb-item">${subcategory.name}</div>
+        `;
+        
+        let html = '';
+        if (posProducts.length === 0) {
+            html = '<div class="loading">Нет товаров</div>';
+        } else {
+            html = posProducts.map(product => {
+                const stockClass = product.total_quantity <= 0 ? 'out' : 
+                                  product.total_quantity <= product.min_stock_level ? 'low' : '';
+                return `
+                    <div class="pos-item" onclick='addToCart(${JSON.stringify(product)})' ${product.total_quantity <= 0 ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+                        <div class="pos-item-info">
+                            <div class="pos-item-name">${product.name}</div>
+                            <div class="pos-item-stock ${stockClass}">
+                                На складе: ${product.total_quantity || 0} шт
+                                ${product.sku ? ` | SKU: ${product.sku}` : ''}
+                            </div>
+                        </div>
+                        <div class="pos-item-price">Добавить</div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        document.getElementById('posBreadcrumb').innerHTML = breadcrumb;
+        document.getElementById('posItemsList').innerHTML = html;
+    } catch (error) {
+        console.error('POS products error:', error);
+    }
+}
+
+function addToCart(product) {
+    if (product.total_quantity <= 0) {
+        alert('Товар отсутствует на складе');
+        return;
+    }
+    
+    const existingItem = posCart.find(item => item.id === product.id);
+    
+    if (existingItem) {
+        if (existingItem.quantity < product.total_quantity) {
+            existingItem.quantity++;
+        } else {
+            alert('Недостаточно товара на складе');
+            return;
+        }
+    } else {
+        posCart.push({
+            id: product.id,
+            name: product.name,
+            quantity: 1,
+            max_quantity: product.total_quantity
+        });
+    }
+    
+    updatePOSReceipt();
+}
+
+function removeFromCart(productId) {
+    posCart = posCart.filter(item => item.id !== productId);
+    updatePOSReceipt();
+}
+
+function updateQuantity(productId, delta) {
+    const item = posCart.find(i => i.id === productId);
+    if (!item) return;
+    
+    const newQuantity = item.quantity + delta;
+    
+    if (newQuantity <= 0) {
+        removeFromCart(productId);
+    } else if (newQuantity <= item.max_quantity) {
+        item.quantity = newQuantity;
+        updatePOSReceipt();
+    } else {
+        alert('Недостаточно товара на складе');
+    }
+}
+
+function updatePOSReceipt() {
+    const receiptItems = document.getElementById('posReceiptItems');
+    const totalElement = document.getElementById('posTotal');
+    const completeBtn = document.getElementById('posCompleteBtn');
+    
+    if (posCart.length === 0) {
+        receiptItems.innerHTML = '<div class="pos-receipt-empty">Корзина пуста<br>Добавьте товары для продажи</div>';
+        totalElement.textContent = '0.00';
+        completeBtn.disabled = true;
+        return;
+    }
+    
+    let html = '';
+    posCart.forEach(item => {
+        html += `
+            <div class="pos-receipt-item">
+                <div class="pos-receipt-item-header">
+                    <div class="pos-receipt-item-name">${item.name}</div>
+                    <button class="pos-receipt-item-remove" onclick="removeFromCart(${item.id})">×</button>
+                </div>
+                <div class="pos-receipt-item-controls">
+                    <div class="pos-quantity-control">
+                        <button class="pos-quantity-btn" onclick="updateQuantity(${item.id}, -1)">-</button>
+                        <span class="pos-quantity-value">${item.quantity}</span>
+                        <button class="pos-quantity-btn" onclick="updateQuantity(${item.id}, 1)">+</button>
+                    </div>
+                    <div class="pos-receipt-item-total">${item.quantity} шт</div>
+                </div>
+            </div>
+        `;
+    });
+    
+    receiptItems.innerHTML = html;
+    
+    const totalItems = posCart.reduce((sum, item) => sum + item.quantity, 0);
+    totalElement.textContent = totalItems;
+    completeBtn.disabled = false;
+}
+
+function clearPOSCart() {
+    if (posCart.length === 0) return;
+    
+    if (confirm('Очистить корзину?')) {
+        posCart = [];
+        updatePOSReceipt();
+    }
+}
+
+async function completePOSSale() {
+    if (posCart.length === 0) {
+        alert('Корзина пуста');
+        return;
+    }
+    
+    const salePrice = prompt('Введите общую цену продажи:');
+    if (!salePrice || isNaN(salePrice) || parseFloat(salePrice) <= 0) {
+        alert('Введите корректную цену');
+        return;
+    }
+    
+    const currency = prompt('Валюта (USD/EUR/GEL/RUB):', 'GEL');
+    if (!currency) return;
+    
+    const buyerName = prompt('Имя покупателя (опционально):') || '';
+    const buyerPhone = prompt('Телефон покупателя (опционально):') || '';
+    
+    try {
+        for (const item of posCart) {
+            const data = {
+                product_id: item.id,
+                quantity: item.quantity,
+                sale_price: parseFloat(salePrice) / posCart.reduce((sum, i) => sum + i.quantity, 0),
+                currency: currency.toUpperCase(),
+                buyer_name: buyerName,
+                buyer_phone: buyerPhone,
+                notes: 'POS Sale'
+            };
+            
+            const response = await apiCall('/api/warehouse/sales', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+            
+            if (!response || !response.ok) {
+                throw new Error('Failed to process sale');
+            }
+        }
+        
+        alert('Продажа успешно оформлена!');
+        posCart = [];
+        updatePOSReceipt();
+        
+        if (posCurrentSubcategoryId) {
+            displayPOSProducts(posCurrentSubcategoryId);
+        }
+    } catch (error) {
+        alert('Ошибка оформления продажи: ' + error.message);
+    }
+}
+
+function searchPOSProducts() {
+    const query = document.getElementById('posSearchInput').value.toLowerCase();
+    
+    if (query.length < 2) {
+        if (posCurrentSubcategoryId) {
+            displayPOSProducts(posCurrentSubcategoryId);
+        } else {
+            displayPOSCategories();
+        }
+        return;
+    }
+    
+    const filteredProducts = posProducts.filter(product => 
+        product.name.toLowerCase().includes(query) ||
+        (product.sku && product.sku.toLowerCase().includes(query))
+    );
+    
+    let html = '';
+    if (filteredProducts.length === 0) {
+        html = '<div class="loading">Товары не найдены</div>';
+    } else {
+        html = filteredProducts.map(product => {
+            const stockClass = product.total_quantity <= 0 ? 'out' : 
+                              product.total_quantity <= product.min_stock_level ? 'low' : '';
+            return `
+                <div class="pos-item" onclick='addToCart(${JSON.stringify(product)})' ${product.total_quantity <= 0 ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+                    <div class="pos-item-info">
+                        <div class="pos-item-name">${product.name}</div>
+                        <div class="pos-item-stock ${stockClass}">
+                            На складе: ${product.total_quantity || 0} шт
+                            ${product.sku ? ` | SKU: ${product.sku}` : ''}
+                        </div>
+                    </div>
+                    <div class="pos-item-price">Добавить</div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    document.getElementById('posItemsList').innerHTML = html;
 }
 
 // Admin
@@ -1579,7 +1726,6 @@ async function loadUsers() {
         return;
     }
 
-    showLoader('Loading users...');
     try {
         const response = await apiCall('/api/admin/users');
         if (!response) return;
@@ -1613,9 +1759,6 @@ async function loadUsers() {
     } catch (error) {
         console.error('Users load error:', error);
         document.querySelector('#usersTable tbody').innerHTML = '<tr><td colspan="5">Error loading users</td></tr>';
-        showNotification('Failed to load users', 'error');
-    } finally {
-        hideLoader();
     }
 }
 
@@ -1624,22 +1767,18 @@ async function toggleUserStatus(userId) {
         return;
     }
 
-    showLoader('Updating user status...');
     try {
         const response = await apiCall(`/api/admin/users/${userId}/toggle`, {
             method: 'PUT'
         });
 
         if (response && response.ok) {
-            showNotification('User status updated successfully', 'success');
             loadUsers();
         } else {
-            showNotification('Failed to toggle user status', 'error');
+            alert('Failed to toggle user status');
         }
     } catch (error) {
-        showNotification('Error toggling user status: ' + error.message, 'error');
-    } finally {
-        hideLoader();
+        alert('Error toggling user status: ' + error.message);
     }
 }
 
@@ -1657,7 +1796,6 @@ window.onclick = function(event) {
     });
 }
 
-// Handle Enter key
 document.addEventListener('keydown', function(event) {
     if (event.key === 'Enter') {
         const activeElement = document.activeElement;
@@ -1672,7 +1810,6 @@ document.addEventListener('keydown', function(event) {
     }
 });
 
-// Auto-refresh dashboard
 setInterval(() => {
     const dashboardSection = document.getElementById('dashboard');
     if (dashboardSection && dashboardSection.classList.contains('active')) {
