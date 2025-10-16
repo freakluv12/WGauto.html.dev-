@@ -884,28 +884,26 @@ app.post('/api/warehouse/inventory/receive-batch', authenticateToken, async (req
   try {
     const productId = req.params.productId;
     
-(async () => {
-  const result = await pool.query(`
-    SELECT 
-      CASE 
-        WHEN i.source_type = 'dismantled' THEN c.brand || ' ' || c.model || ' ' || COALESCE(c.year::text, '')
-        ELSE 'Закупка'
-      END AS source_name,
-      CURRENT_DATE - i.received_date AS days_in_storage
-    FROM inventory i
-    LEFT JOIN cars c ON i.source_type = 'dismantled' AND i.source_id = c.id
-    WHERE i.product_id = $1 AND i.quantity > 0
-    ORDER BY i.received_date;
-  `, [productId]);
-
-  console.log(result.rows);
-})();
+    const result = await pool.query(`
+      SELECT 
+        i.*,
+        CASE 
+          WHEN i.source_type = 'dismantled' THEN c.brand || ' ' || c.model || ' ' || COALESCE(c.year::text, '')
+          ELSE 'Закупка'
+        END as source_name,
+        CURRENT_DATE - i.received_date as days_in_storage
+      FROM inventory i
+      LEFT JOIN cars c ON i.source_type = 'dismantled' AND i.source_id = c.id
+      WHERE i.product_id = $1 AND i.quantity > 0
+      ORDER BY i.received_date
+    `, [productId]);
     
     res.json(result.rows);
   } catch (error) {
     console.error('Get inventory error:', error);
     res.status(500).json({ error: 'Failed to fetch inventory' });
   }
+});
 
 app.post('/api/warehouse/inventory/receive', authenticateToken, async (req, res) => {
   try {
