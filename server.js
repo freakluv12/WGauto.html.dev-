@@ -884,8 +884,12 @@ app.post('/api/warehouse/inventory/receive-batch', authenticateToken, async (req
   try {
     const productId = req.params.productId;
     
-    const result = await pool.query(`
-      SELECT 
+    (async () => {
+  const result = await pool.query(`
+    SELECT * FROM users;
+  `);
+  console.log(result);
+})();
         i.*,
         CASE 
           WHEN i.source_type = 'dismantled' THEN c.brand || ' ' || c.model || ' ' || COALESCE(c.year::text, '')
