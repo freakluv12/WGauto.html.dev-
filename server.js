@@ -111,31 +111,6 @@ async function initDB() {
       )
     `);
 
-    // NEW: Create POS tables
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS pos_sales (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
-        discount_type VARCHAR(10),
-        discount_value DECIMAL(10,2) DEFAULT 0,
-        total_amount DECIMAL(10,2) NOT NULL,
-        final_amount DECIMAL(10,2) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS pos_sale_items (
-        id SERIAL PRIMARY KEY,
-        sale_id INTEGER REFERENCES pos_sales(id) ON DELETE CASCADE,
-        product_id INTEGER REFERENCES products(id),
-        quantity INTEGER NOT NULL,
-        unit_price DECIMAL(10,2) NOT NULL,
-        total_price DECIMAL(10,2) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
     // Создать admin если не существует
     const adminExists = await pool.query('SELECT id FROM users WHERE email = $1', ['admin@wgauto.com']);
     if (adminExists.rows.length === 0) {
@@ -640,15 +615,15 @@ app.get('/api/warehouse/products/:subcategoryId', authenticateToken, async (req,
 
 app.post('/api/warehouse/products', authenticateToken, async (req, res) => {
   try {
-    const { subcategory_id, name, description, sku, min_stock_level, purchase_price, sale_price } = req.body;
+    const { subcategory_id, name, description, sku, min_stock_level } = req.body;
     
     if (!subcategory_id || !name) {
       return res.status(400).json({ error: 'Subcategory ID and name are required' });
     }
     
     const result = await pool.query(
-      'INSERT INTO products (subcategory_id, name, description, sku, min_stock_level, purchase_price, sale_price, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-      [subcategory_id, name, description || '', sku || null, min_stock_level || 0, purchase_price || null, sale_price || null, req.user.id]
+      'INSERT INTO products (subcategory_id, name, description, sku, min_stock_level, user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [subcategory_id, name, description || '', sku || null, min_stock_level || 0, req.user.id]
     );
     
     res.json(result.rows[0]);
@@ -658,229 +633,7 @@ app.post('/api/warehouse/products', authenticateToken, async (req, res) => {
   }
 });
 
-// NEW: Update product prices
-app.put('/api/warehouse/products/:id', authenticateToken, async (req, res) => {
-  try {
-    const productId = req.params.id;
-    const { name, description, sku, min_stock_level, purchase_price, sale_price } = req.body;
-    
-    const result = await pool.query(
-      `UPDATE products 
-       SET name = COALESCE($1, name),
-           description = COALESCE($2, description),
-           sku = COALESCE($3, sku),
-           min_stock_level = COALESCE($4, min_stock_level),
-           purchase_price = COALESCE($5, purchase_price),
-           sale_price = COALESCE($6, sale_price)
-       WHERE id = $7
-       RETURNING *`,
-      [name, description, sku, min_stock_level, purchase_price, sale_price, productId]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-    
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Update product error:', error);
-    res.status(500).json({ error: 'Failed to update product' });
-  }
-});
-
-// NEW: Get all products with inventory for POS
-app.get('/api/warehouse/products-all', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.role === 'ADMIN' ? null : req.user.id;
-    const userFilter = userId ? 'AND p.user_id = $1' : '';
-    const params = userId ? [userId] : [];
-    
-    const result = await pool.query(`
-      SELECT 
-        p.id,
-        p.name,
-        p.sku,
-        p.purchase_price,
-        p.sale_price,
-        p.subcategory_id,
-        sc.name as subcategory_name,
-        sc.category_id,
-        c.name as category_name,
-        c.icon as category_icon,
-        COALESCE(SUM(i.quantity), 0) as stock_quantity
-      FROM products p
-      JOIN subcategories sc ON p.subcategory_id = sc.id
-      JOIN categories c ON sc.category_id = c.id
-      LEFT JOIN inventory i ON p.id = i.product_id
-      WHERE 1=1 ${userFilter}
-      GROUP BY p.id, p.name, p.sku, p.purchase_price, p.sale_price, p.subcategory_id, 
-               sc.name, sc.category_id, c.name, c.icon
-      ORDER BY c.name, sc.name, p.name
-    `, params);
-    
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Get all products error:', error);
-    res.status(500).json({ error: 'Failed to fetch products' });
-  }
-});
-
-// NEW: POS Sale endpoint
-app.post('/api/pos/sale', authenticateToken, async (req, res) => {
-  try {
-    const { items, discount_type, discount_value, total_amount, final_amount } = req.body;
-    
-    if (!items || items.length === 0) {
-      return res.status(400).json({ error: 'No items in sale' });
-    }
-    
-    const client = await pool.connect();
-    
-    try {
-      await client.query('BEGIN');
-      
-      // Create sale record
-      const saleResult = await client.query(
-        `INSERT INTO pos_sales (user_id, discount_type, discount_value, total_amount, final_amount) 
-         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-        [req.user.id, discount_type || null, discount_value || 0, total_amount, final_amount]
-      );
-      
-      const sale = saleResult.rows[0];
-      
-      // Process each item
-      for (const item of items) {
-        // Add sale item
-        await client.query(
-          `INSERT INTO pos_sale_items (sale_id, product_id, quantity, unit_price, total_price) 
-           VALUES ($1, $2, $3, $4, $5)`,
-          [sale.id, item.product_id, item.quantity, item.unit_price, item.total_price]
-        );
-        
-        // Deduct from inventory (FIFO - first in, first out)
-        let remainingQty = item.quantity;
-        
-        const inventoryItems = await client.query(
-          `SELECT id, quantity, purchase_price, currency 
-           FROM inventory 
-           WHERE product_id = $1 AND quantity > 0 
-           ORDER BY received_date ASC`,
-          [item.product_id]
-        );
-        
-        if (inventoryItems.rows.length === 0) {
-          throw new Error(`Insufficient stock for product ${item.product_id}`);
-        }
-        
-        let totalCost = 0;
-        let costCurrency = 'USD';
-        
-        for (const invItem of inventoryItems.rows) {
-          if (remainingQty <= 0) break;
-          
-          const deductQty = Math.min(remainingQty, invItem.quantity);
-          
-          // Update inventory quantity
-          await client.query(
-            'UPDATE inventory SET quantity = quantity - $1 WHERE id = $2',
-            [deductQty, invItem.id]
-          );
-          
-          totalCost += deductQty * (invItem.purchase_price || 0);
-          costCurrency = invItem.currency || 'USD';
-          remainingQty -= deductQty;
-        }
-        
-        if (remainingQty > 0) {
-          throw new Error(`Insufficient stock for product ${item.product_id}`);
-        }
-        
-        // Create inventory sale record
-        await client.query(
-          `INSERT INTO inventory_sales (product_id, quantity, sale_price, cost_price, currency, user_id, notes) 
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [item.product_id, item.quantity, item.unit_price, totalCost / item.quantity, costCurrency, req.user.id, `POS Sale #${sale.id}`]
-        );
-      }
-      
-      // Create transaction
-      await client.query(
-        `INSERT INTO transactions (user_id, type, amount, currency, category, description) 
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [req.user.id, 'income', final_amount, 'USD', 'pos_sale', `POS Sale #${sale.id}`]
-      );
-      
-      await client.query('COMMIT');
-      res.json({ success: true, sale_id: sale.id });
-      
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-    
-  } catch (error) {
-    console.error('POS sale error:', error);
-    res.status(500).json({ error: error.message || 'Failed to process sale' });
-  }
-});
-
-// NEW: Batch receive inventory (for receiving interface)
-app.post('/api/warehouse/inventory/receive-batch', authenticateToken, async (req, res) => {
-  try {
-    const { items } = req.body;
-    
-    if (!items || items.length === 0) {
-      return res.status(400).json({ error: 'No items to receive' });
-    }
-    
-    const client = await pool.connect();
-    
-    try {
-      await client.query('BEGIN');
-      
-      for (const item of items) {
-        const { product_id, quantity, purchase_price, sale_price, source_type, location } = item;
-        
-        if (!product_id || !quantity || quantity <= 0) {
-          throw new Error('Invalid item data');
-        }
-        
-        // Update product prices if provided
-        if (purchase_price !== undefined || sale_price !== undefined) {
-          await client.query(
-            `UPDATE products 
-             SET purchase_price = COALESCE($1, purchase_price),
-                 sale_price = COALESCE($2, sale_price)
-             WHERE id = $3`,
-            [purchase_price, sale_price, product_id]
-          );
-        }
-        
-        // Add to inventory
-        await client.query(
-          `INSERT INTO inventory (product_id, source_type, quantity, purchase_price, currency, location, user_id) 
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [product_id, source_type || 'purchased', quantity, purchase_price || 0, 'USD', location || '', req.user.id]
-        );
-      }
-      
-      await client.query('COMMIT');
-      res.json({ success: true });
-      
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-    
-  } catch (error) {
-    console.error('Batch receive error:', error);
-    res.status(500).json({ error: error.message || 'Failed to receive items' });
-  }
-});
+app.get('/api/warehouse/inventory/:productId', authenticateToken, async (req, res) => {
   try {
     const productId = req.params.productId;
     
