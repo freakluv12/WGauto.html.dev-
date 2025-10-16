@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// JWT_SECRET - генерируем если не установлен
+// JWT_SECRET - генерируем если не установлен, но предупреждаем
 let JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   JWT_SECRET = crypto.randomBytes(64).toString('hex');
@@ -27,7 +27,7 @@ app.use(express.static('public'));
 // Initialize database
 async function initDB() {
   try {
-    // Создание базовых таблиц
+    // Создание базовых таблиц (users, cars, transactions, rentals)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -679,6 +679,285 @@ app.post('/api/warehouse/inventory/receive', authenticateToken, async (req, res)
   }
 });
 
+app.get('/api/warehouse/procurements', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.role === 'ADMIN' ? null : req.user.id;
+    const query = userId ?
+      'SELECT * FROM procurements WHERE user_id = $1 ORDER BY procurement_date DESC' :
+      'SELECT * FROM procurements ORDER BY procurement_date DESC';
+    const params = userId ? [userId] : [];
+    
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get procurements error:', error);
+    res.status(500).json({ error: 'Failed to fetch procurements' });
+  }
+});
+
+app.post('/api/warehouse/procurements', authenticateToken, async (req, res) => {
+  try {
+    const { supplier_name, invoice_number, total_amount, currency, notes, procurement_date, items } = req.body;
+    
+    if (!items || items.length === 0) {
+      return res.status(400).json({ error: 'At least one item is required' });
+    }
+    
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+      
+      const procurementResult = await client.query(
+        `INSERT INTO procurements (supplier_name, invoice_number, total_amount, currency, notes, procurement_date, user_id, status) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+        [supplier_name || '', invoice_number || '', total_amount, currency, notes || '', procurement_date || new Date(), req.user.id, 'completed']
+      );
+      
+      const procurement = procurementResult.rows[0];
+      
+      for (const item of items) {
+        await client.query(
+          'INSERT INTO procurement_items (procurement_id, product_id, quantity, unit_price, currency) VALUES ($1, $2, $3, $4, $5)',
+          [procurement.id, item.product_id, item.quantity, item.unit_price, currency]
+        );
+        
+        await client.query(
+          `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, currency, user_id) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [item.product_id, 'purchased', procurement.id, item.quantity, item.unit_price, currency, req.user.id]
+        );
+      }
+      
+      await client.query('COMMIT');
+      res.json(procurement);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Create procurement error:', error);
+    res.status(500).json({ error: 'Failed to create procurement' });
+  }
+});
+
+app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
+  try {
+    const { inventory_id, product_id, quantity, sale_price, cost_price, currency, buyer_name, buyer_phone, notes } = req.body;
+    
+    if (!product_id || !quantity || !sale_price || quantity <= 0) {
+      return res.status(400).json({ error: 'Product, positive quantity, and sale price are required' });
+    }
+    
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+      
+      if (inventory_id) {
+        const inventoryCheck = await client.query(
+          'SELECT quantity FROM inventory WHERE id = $1',
+          [inventory_id]
+        );
+        
+        if (inventoryCheck.rows.length === 0 || inventoryCheck.rows[0].quantity < quantity) {
+          throw new Error('Insufficient inventory quantity');
+        }
+      }
+      
+      const saleResult = await client.query(
+        `INSERT INTO inventory_sales (inventory_id, product_id, quantity, sale_price, cost_price, currency, buyer_name, buyer_phone, notes, user_id) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+        [inventory_id || null, product_id, quantity, sale_price, cost_price || null, currency, buyer_name || '', buyer_phone || '', notes || '', req.user.id]
+      );
+      
+      await client.query(
+        'INSERT INTO transactions (user_id, type, amount, currency, category, description) VALUES ($1, $2, $3, $4, $5, $6)',
+        [req.user.id, 'income', sale_price * quantity, currency, 'parts', `Sale of ${quantity} units`]
+      );
+      
+      await client.query('COMMIT');
+      res.json(saleResult.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Create sale error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create sale' });
+  }
+});
+
+// NEW: Enhanced Analytics with Filters
+app.get('/api/warehouse/analytics-detailed', authenticateToken, async (req, res) => {
+  try {
+    const { 
+      start_date, 
+      end_date, 
+      category_id, 
+      subcategory_id,
+      sales_compare,
+      sales_value,
+      revenue_compare,
+      revenue_value,
+      profit_compare,
+      profit_value,
+      margin_compare,
+      margin_value
+    } = req.query;
+    
+    const userId = req.user.role === 'ADMIN' ? null : req.user.id;
+    
+    // Default to last 30 days if no dates specified
+    const defaultEndDate = new Date().toISOString().split('T')[0];
+    const defaultStartDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    const finalStartDate = start_date || defaultStartDate;
+    const finalEndDate = end_date || defaultEndDate;
+    
+    let query = `
+      SELECT 
+        p.id as product_id,
+        p.name as product_name,
+        p.sku,
+        c.name as category_name,
+        sc.name as subcategory_name,
+        COALESCE(SUM(s.quantity), 0) as total_sold,
+        COALESCE(SUM(s.sale_price * s.quantity), 0) as total_revenue,
+        COALESCE(SUM(s.cost_price * s.quantity), 0) as total_cost,
+        COALESCE(SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity), 0) as net_profit,
+        CASE 
+          WHEN SUM(s.cost_price * s.quantity) > 0 
+          THEN ((SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity)) / SUM(s.cost_price * s.quantity) * 100)
+          ELSE 0 
+        END as profit_margin_percent,
+        s.currency
+      FROM products p
+      JOIN subcategories sc ON p.subcategory_id = sc.id
+      JOIN categories c ON sc.category_id = c.id
+      LEFT JOIN inventory_sales s ON p.id = s.product_id
+    `;
+    
+    let conditions = [];
+    let params = [];
+    let paramCount = 0;
+    
+    if (userId) {
+      paramCount++;
+      conditions.push(`p.user_id = $${paramCount}`);
+      params.push(userId);
+    }
+    
+    // Date range filter
+    paramCount++;
+    conditions.push(`(s.sale_date >= $${paramCount} OR s.sale_date IS NULL)`);
+    params.push(finalStartDate);
+    
+    paramCount++;
+    conditions.push(`(s.sale_date <= $${paramCount} OR s.sale_date IS NULL)`);
+    params.push(finalEndDate);
+    
+    if (category_id) {
+      paramCount++;
+      conditions.push(`c.id = $${paramCount}`);
+      params.push(category_id);
+    }
+    
+    if (subcategory_id) {
+      paramCount++;
+      conditions.push(`sc.id = $${paramCount}`);
+      params.push(subcategory_id);
+    }
+    
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+    
+    query += ' GROUP BY p.id, p.name, p.sku, c.name, sc.name, s.currency';
+    
+    // Apply HAVING clauses for comparison filters
+    let havingConditions = [];
+    
+    if (sales_compare && sales_value) {
+      const operator = sales_compare === 'more' ? '>' : '<';
+      havingConditions.push(`COALESCE(SUM(s.quantity), 0) ${operator} ${parseInt(sales_value)}`);
+    }
+    
+    if (revenue_compare && revenue_value) {
+      const operator = revenue_compare === 'more' ? '>' : '<';
+      havingConditions.push(`COALESCE(SUM(s.sale_price * s.quantity), 0) ${operator} ${parseFloat(revenue_value)}`);
+    }
+    
+    if (profit_compare && profit_value) {
+      const operator = profit_compare === 'more' ? '>' : '<';
+      havingConditions.push(`COALESCE(SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity), 0) ${operator} ${parseFloat(profit_value)}`);
+    }
+    
+    if (margin_compare && margin_value) {
+      const operator = margin_compare === 'more' ? '>' : '<';
+      havingConditions.push(`
+        CASE 
+          WHEN SUM(s.cost_price * s.quantity) > 0 
+          THEN ((SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity)) / SUM(s.cost_price * s.quantity) * 100)
+          ELSE 0 
+        END ${operator} ${parseFloat(margin_value)}
+      `);
+    }
+    
+    if (havingConditions.length > 0) {
+      query += ' HAVING ' + havingConditions.join(' AND ');
+    }
+    
+    query += ' ORDER BY total_revenue DESC';
+    
+    const result = await pool.query(query, params);
+    
+    // Calculate totals by currency
+    const totals = result.rows.reduce((acc, row) => {
+      const curr = row.currency || 'USD';
+      if (!acc[curr]) {
+        acc[curr] = {
+          currency: curr,
+          total_sold: 0,
+          total_revenue: 0,
+          total_cost: 0,
+          net_profit: 0
+        };
+      }
+      acc[curr].total_sold += parseInt(row.total_sold || 0);
+      acc[curr].total_revenue += parseFloat(row.total_revenue || 0);
+      acc[curr].total_cost += parseFloat(row.total_cost || 0);
+      acc[curr].net_profit += parseFloat(row.net_profit || 0);
+      return acc;
+    }, {});
+    
+    Object.keys(totals).forEach(curr => {
+      if (totals[curr].total_cost > 0) {
+        totals[curr].profit_margin_percent = (totals[curr].net_profit / totals[curr].total_cost * 100).toFixed(2);
+      } else {
+        totals[curr].profit_margin_percent = 0;
+      }
+    });
+    
+    res.json({
+      items: result.rows,
+      totals: Object.values(totals),
+      period: {
+        start: finalStartDate,
+        end: finalEndDate
+      }
+    });
+  } catch (error) {
+    console.error('Analytics detailed error:', error);
+    res.status(500).json({ error: 'Failed to fetch analytics' });
+  }
+});
+
+// Keep old analytics endpoint for backwards compatibility
 app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
   try {
     const { start_date, end_date, category_id, subcategory_id } = req.query;
@@ -690,13 +969,20 @@ app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
         p.name as product_name,
         c.name as category_name,
         sc.name as subcategory_name,
-        COALESCE(SUM(i.quantity), 0) as total_quantity,
-        COALESCE(AVG(i.purchase_price), 0) as avg_purchase_price,
-        i.currency
+        COALESCE(SUM(s.quantity), 0) as total_sold,
+        COALESCE(SUM(s.sale_price * s.quantity), 0) as total_revenue,
+        COALESCE(SUM(s.cost_price * s.quantity), 0) as total_cost,
+        COALESCE(SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity), 0) as net_profit,
+        CASE 
+          WHEN SUM(s.cost_price * s.quantity) > 0 
+          THEN ((SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity)) / SUM(s.cost_price * s.quantity) * 100)
+          ELSE 0 
+        END as profit_margin_percent,
+        s.currency
       FROM products p
       JOIN subcategories sc ON p.subcategory_id = sc.id
       JOIN categories c ON sc.category_id = c.id
-      LEFT JOIN inventory i ON p.id = i.product_id
+      LEFT JOIN inventory_sales s ON p.id = s.product_id
     `;
     
     let conditions = [];
@@ -707,6 +993,18 @@ app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
       paramCount++;
       conditions.push(`p.user_id = $${paramCount}`);
       params.push(userId);
+    }
+    
+    if (start_date) {
+      paramCount++;
+      conditions.push(`s.sale_date >= $${paramCount}`);
+      params.push(start_date);
+    }
+    
+    if (end_date) {
+      paramCount++;
+      conditions.push(`s.sale_date <= $${paramCount}`);
+      params.push(end_date);
     }
     
     if (category_id) {
@@ -725,7 +1023,7 @@ app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
       query += ' WHERE ' + conditions.join(' AND ');
     }
     
-    query += ' GROUP BY p.id, p.name, c.name, sc.name, i.currency ORDER BY p.name';
+    query += ' GROUP BY p.id, p.name, c.name, sc.name, s.currency ORDER BY total_revenue DESC';
     
     const result = await pool.query(query, params);
     
@@ -734,14 +1032,26 @@ app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
       if (!acc[curr]) {
         acc[curr] = {
           currency: curr,
-          total_items: 0,
-          total_value: 0
+          total_sold: 0,
+          total_revenue: 0,
+          total_cost: 0,
+          net_profit: 0
         };
       }
-      acc[curr].total_items += parseInt(row.total_quantity || 0);
-      acc[curr].total_value += parseFloat(row.total_quantity || 0) * parseFloat(row.avg_purchase_price || 0);
+      acc[curr].total_sold += parseInt(row.total_sold || 0);
+      acc[curr].total_revenue += parseFloat(row.total_revenue || 0);
+      acc[curr].total_cost += parseFloat(row.total_cost || 0);
+      acc[curr].net_profit += parseFloat(row.net_profit || 0);
       return acc;
     }, {});
+    
+    Object.keys(totals).forEach(curr => {
+      if (totals[curr].total_cost > 0) {
+        totals[curr].profit_margin_percent = (totals[curr].net_profit / totals[curr].total_cost * 100).toFixed(2);
+      } else {
+        totals[curr].profit_margin_percent = 0;
+      }
+    });
     
     res.json({
       items: result.rows,
@@ -750,169 +1060,6 @@ app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Analytics error:', error);
     res.status(500).json({ error: 'Failed to fetch analytics' });
-  }
-});
-
-// ==================== POS ROUTES ====================
-
-// Get current shift
-app.get('/api/pos/shift/current', authenticateToken, async (req, res) => {
-  try {
-    const result = await pool.query(
-      'SELECT * FROM pos_shifts WHERE user_id = $1 AND status = $2 ORDER BY opened_at DESC LIMIT 1',
-      [req.user.id, 'open']
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'No active shift' });
-    }
-    
-    res.json({ shift: result.rows[0] });
-  } catch (error) {
-    console.error('Get current shift error:', error);
-    res.status(500).json({ error: 'Failed to get current shift' });
-  }
-});
-
-// Open shift
-app.post('/api/pos/shift/open', authenticateToken, async (req, res) => {
-  try {
-    const { currency } = req.body;
-    
-    // Check if there's already an open shift
-    const existingShift = await pool.query(
-      'SELECT id FROM pos_shifts WHERE user_id = $1 AND status = $2',
-      [req.user.id, 'open']
-    );
-    
-    if (existingShift.rows.length > 0) {
-      return res.status(400).json({ error: 'There is already an open shift' });
-    }
-    
-    const result = await pool.query(
-      'INSERT INTO pos_shifts (user_id, currency, status, opened_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP) RETURNING *',
-      [req.user.id, currency || 'USD', 'open']
-    );
-    
-    res.json({ shift: result.rows[0] });
-  } catch (error) {
-    console.error('Open shift error:', error);
-    res.status(500).json({ error: 'Failed to open shift' });
-  }
-});
-
-// Close shift
-app.post('/api/pos/shift/:id/close', authenticateToken, async (req, res) => {
-  try {
-    const shiftId = req.params.id;
-    
-    // Get shift totals
-    const salesResult = await pool.query(
-      'SELECT COUNT(*) as count, SUM(total_amount) as total, currency FROM pos_sales WHERE shift_id = $1 GROUP BY currency',
-      [shiftId]
-    );
-    
-    const report = salesResult.rows[0] || { count: 0, total: 0, currency: 'USD' };
-    
-    // Close shift
-    await pool.query(
-      'UPDATE pos_shifts SET status = $1, closed_at = CURRENT_TIMESTAMP WHERE id = $2',
-      ['closed', shiftId]
-    );
-    
-    res.json({
-      success: true,
-      report: {
-        transaction_count: report.count,
-        total_sales: report.total || 0,
-        currency: report.currency
-      }
-    });
-  } catch (error) {
-    console.error('Close shift error:', error);
-    res.status(500).json({ error: 'Failed to close shift' });
-  }
-});
-
-// Create sale
-app.post('/api/pos/sale', authenticateToken, async (req, res) => {
-  try {
-    const { shift_id, items, payment_method, buyer_name, buyer_phone, notes, currency } = req.body;
-    
-    if (!shift_id || !items || items.length === 0) {
-      return res.status(400).json({ error: 'Shift ID and items are required' });
-    }
-    
-    const client = await pool.connect();
-    
-    try {
-      await client.query('BEGIN');
-      
-      // Calculate total
-      const totalAmount = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-      
-      // Create sale record
-      const saleResult = await client.query(
-        `INSERT INTO pos_sales (shift_id, user_id, total_amount, currency, payment_method, buyer_name, buyer_phone, notes) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-        [shift_id, req.user.id, totalAmount, currency, payment_method, buyer_name || '', buyer_phone || '', notes || '']
-      );
-      
-      const sale = saleResult.rows[0];
-      
-      // Insert sale items and update inventory
-      for (const item of items) {
-        // Insert sale item
-        await client.query(
-          'INSERT INTO pos_sale_items (sale_id, product_id, quantity, price, total) VALUES ($1, $2, $3, $4, $5)',
-          [sale.id, item.product_id, item.quantity, item.price, item.price * item.quantity]
-        );
-        
-        // Reduce inventory (FIFO - first in, first out)
-        let remainingQty = item.quantity;
-        
-        const inventoryItems = await client.query(
-          'SELECT * FROM inventory WHERE product_id = $1 AND quantity > 0 ORDER BY received_date ASC',
-          [item.product_id]
-        );
-        
-        for (const invItem of inventoryItems.rows) {
-          if (remainingQty <= 0) break;
-          
-          const deductQty = Math.min(remainingQty, invItem.quantity);
-          
-          await client.query(
-            'UPDATE inventory SET quantity = quantity - $1 WHERE id = $2',
-            [deductQty, invItem.id]
-          );
-          
-          remainingQty -= deductQty;
-        }
-        
-        if (remainingQty > 0) {
-          throw new Error(`Insufficient inventory for product ${item.product_id}`);
-        }
-      }
-      
-      // Create transaction record for accounting
-      await client.query(
-        `INSERT INTO transactions (user_id, type, amount, currency, category, description) 
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [req.user.id, 'income', totalAmount, currency, 'pos_sale', `PoS Sale #${sale.id}${buyer_name ? ' - ' + buyer_name : ''}`]
-      );
-      
-      await client.query('COMMIT');
-      
-      res.json({ sale });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-  } catch (error) {
-    console.error('Create sale error:', error);
-    res.status(500).json({ error: error.message || 'Failed to create sale' });
   }
 });
 
