@@ -266,14 +266,14 @@
                             <table class="table analytics-table" id="warehouseAnalyticsTable">
                                 <thead>
                                     <tr style="position: sticky; top: 0; background: #3d3d3d; z-index: 10;">
-                                        <th>Название товара</th>
-                                        <th>Категория</th>
-                                        <th>SKU</th>
-                                        <th>Продажи (шт)</th>
-                                        <th>Выручка</th>
-                                        <th>Себестоимость</th>
-                                        <th>Прибыль</th>
-                                        <th>Рентабельность (%)</th>
+                                        <th onclick="sortAnalyticsByColumn('name')" style="cursor: pointer;">Название товара</th>
+                                        <th onclick="sortAnalyticsByColumn('category')" style="cursor: pointer;">Категория</th>
+                                        <th onclick="sortAnalyticsByColumn('sku')" style="cursor: pointer;">SKU</th>
+                                        <th onclick="sortAnalyticsByColumn('sales')" style="cursor: pointer;">Продажи (шт)</th>
+                                        <th onclick="sortAnalyticsByColumn('revenue')" style="cursor: pointer;">Выручка</th>
+                                        <th onclick="sortAnalyticsByColumn('cost')" style="cursor: pointer;">Себестоимость</th>
+                                        <th onclick="sortAnalyticsByColumn('profit')" style="cursor: pointer;">Прибыль</th>
+                                        <th onclick="sortAnalyticsByColumn('margin')" style="cursor: pointer;">Рентабельность (%)</th>
                                     </tr>
                                 </thead>
                                 <tbody id="analyticsTableBody">
@@ -694,4 +694,4 @@
 
     <script src="app.js"></script>
 </body>
-    </html>
+</html>
