@@ -1217,6 +1217,11 @@ function showProcurementModal() {
 
 // ==================== NEW: WAREHOUSE ANALYTICS ====================
 
+// Analytics sorting state
+let analyticsSortColumn = null;
+let analyticsSortDirection = 'desc'; // 'asc' or 'desc'
+let currentAnalyticsData = null; // Store current data for sorting
+
 // Reset analytics filters to default
 function resetAnalyticsFilters() {
     setDefaultAnalyticsDates();
@@ -1228,6 +1233,8 @@ function resetAnalyticsFilters() {
     document.getElementById('analyticsProfitValue').value = '';
     document.getElementById('analyticsMarginCompare').value = '';
     document.getElementById('analyticsMarginValue').value = '';
+    analyticsSortColumn = null;
+    analyticsSortDirection = 'desc';
     loadWarehouseAnalytics();
 }
 
@@ -1280,6 +1287,9 @@ async function loadWarehouseAnalytics() {
         
         const data = await response.json();
         
+        // Store data for sorting
+        currentAnalyticsData = data;
+        
         // Display period
         const periodStart = new Date(data.period.start).toLocaleDateString();
         const periodEnd = new Date(data.period.end).toLocaleDateString();
@@ -1287,6 +1297,11 @@ async function loadWarehouseAnalytics() {
         
         // Display summary cards
         displayAnalyticsSummary(data.totals);
+        
+        // Apply sorting if set
+        if (analyticsSortColumn && data.items.length > 0) {
+            data.items = sortAnalyticsData(data.items, analyticsSortColumn, analyticsSortDirection);
+        }
         
         // Display analytics table
         displayAnalyticsTable(data.items, data.totals);
@@ -1364,6 +1379,9 @@ function displayAnalyticsTable(items, totals) {
     
     document.getElementById('analyticsTableBody').innerHTML = tableHTML;
     
+    // Update table headers with sort indicators
+    updateSortIndicators();
+    
     // Display footer with totals
     let footerHTML = '';
     if (totals && totals.length > 0) {
@@ -1382,6 +1400,113 @@ function displayAnalyticsTable(items, totals) {
     }
     
     document.getElementById('analyticsTableFooter').innerHTML = footerHTML;
+}
+
+// NEW: Sort analytics data
+function sortAnalyticsData(items, column, direction) {
+    const sortedItems = [...items];
+    
+    sortedItems.sort((a, b) => {
+        let aVal, bVal;
+        
+        switch(column) {
+            case 'name':
+                aVal = a.product_name.toLowerCase();
+                bVal = b.product_name.toLowerCase();
+                break;
+            case 'category':
+                aVal = (a.category_name + a.subcategory_name).toLowerCase();
+                bVal = (b.category_name + b.subcategory_name).toLowerCase();
+                break;
+            case 'sku':
+                aVal = (a.sku || '').toLowerCase();
+                bVal = (b.sku || '').toLowerCase();
+                break;
+            case 'sales':
+                aVal = parseFloat(a.total_sold || 0);
+                bVal = parseFloat(b.total_sold || 0);
+                break;
+            case 'revenue':
+                aVal = parseFloat(a.total_revenue || 0);
+                bVal = parseFloat(b.total_revenue || 0);
+                break;
+            case 'cost':
+                aVal = parseFloat(a.total_cost || 0);
+                bVal = parseFloat(b.total_cost || 0);
+                break;
+            case 'profit':
+                aVal = parseFloat(a.net_profit || 0);
+                bVal = parseFloat(b.net_profit || 0);
+                break;
+            case 'margin':
+                aVal = parseFloat(a.profit_margin_percent || 0);
+                bVal = parseFloat(b.profit_margin_percent || 0);
+                break;
+            default:
+                return 0;
+        }
+        
+        if (typeof aVal === 'string') {
+            return direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        } else {
+            return direction === 'asc' ? aVal - bVal : bVal - aVal;
+        }
+    });
+    
+    return sortedItems;
+}
+
+// NEW: Handle column sort click
+function sortAnalyticsByColumn(column) {
+    if (!currentAnalyticsData || !currentAnalyticsData.items) return;
+    
+    // Toggle direction if same column, otherwise default to desc
+    if (analyticsSortColumn === column) {
+        analyticsSortDirection = analyticsSortDirection === 'desc' ? 'asc' : 'desc';
+    } else {
+        analyticsSortColumn = column;
+        analyticsSortDirection = 'desc';
+    }
+    
+    // Sort and display
+    const sortedItems = sortAnalyticsData(currentAnalyticsData.items, analyticsSortColumn, analyticsSortDirection);
+    displayAnalyticsTable(sortedItems, currentAnalyticsData.totals);
+}
+
+// NEW: Update sort indicators in table headers
+function updateSortIndicators() {
+    // Remove all existing indicators
+    document.querySelectorAll('.analytics-table thead th').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        const arrow = th.querySelector('.sort-arrow');
+        if (arrow) arrow.remove();
+    });
+    
+    // Add indicator to current sorted column
+    if (analyticsSortColumn) {
+        const columnMap = {
+            'name': 0,
+            'category': 1,
+            'sku': 2,
+            'sales': 3,
+            'revenue': 4,
+            'cost': 5,
+            'profit': 6,
+            'margin': 7
+        };
+        
+        const columnIndex = columnMap[analyticsSortColumn];
+        if (columnIndex !== undefined) {
+            const th = document.querySelectorAll('.analytics-table thead th')[columnIndex];
+            if (th) {
+                th.classList.add(`sorted-${analyticsSortDirection}`);
+                const arrow = document.createElement('span');
+                arrow.className = 'sort-arrow';
+                arrow.textContent = analyticsSortDirection === 'desc' ? ' ▼' : ' ▲';
+                th.appendChild(arrow);
+            }
+        }
+    }
 }
 
 // Admin
