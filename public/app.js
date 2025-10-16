@@ -17,6 +17,17 @@ let products = [];
 let inventory = [];
 let currentWarehouseTab = 'stock'; // NEW: Track current warehouse tab
 
+// POS variables (NEW)
+let posReceipt = []; // Items in current receipt
+let allProducts = []; // All products for POS
+let posCurrentCategory = null;
+let posCurrentSubcategory = null;
+
+// Receiving variables (NEW)
+let receivingItems = []; // Items being received
+let receivingCurrentCategory = null;
+let receivingCurrentSubcategory = null;
+
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
     checkAuthStatus();
@@ -220,6 +231,7 @@ function showSection(sectionName) {
         cars: 'Cars',
         rentals: 'Rentals',
         warehouse: 'Warehouse',
+        pos: 'Касса (POS)',
         admin: 'Admin Panel'
     };
     document.getElementById('pageTitle').textContent = titles[sectionName];
@@ -236,6 +248,9 @@ function showSection(sectionName) {
             break;
         case 'warehouse':
             loadWarehouse();
+            break;
+        case 'pos':
+            loadPOS();
             break;
         case 'admin':
             loadUsers();
@@ -1070,6 +1085,21 @@ async function showProductDetails(productId) {
         document.getElementById('productDetailsSKU').textContent = product.sku || 'N/A';
         document.getElementById('productDetailsTotal').textContent = product.total_quantity || 0;
         
+        // Add edit button and prices
+        const priceInfo = `
+            <div style="margin-top: 20px; padding: 15px; background: #3d3d3d; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <p><strong>Цена закупки:</strong> $${(product.purchase_price || 0).toFixed(2)}</p>
+                        <p><strong>Цена продажи:</strong> $${(product.sale_price || 0).toFixed(2)}</p>
+                    </div>
+                    <button class="btn" onclick="showEditProductModal(${productId})">✏️ Редактировать</button>
+                </div>
+            </div>
+        `;
+        
+        document.querySelector('#productInventoryTable').insertAdjacentHTML('beforebegin', priceInfo);
+        
         document.querySelector('#productInventoryTable tbody').innerHTML = inventoryHTML;
         
         document.getElementById('productDetailsModal').style.display = 'block';
@@ -1081,14 +1111,8 @@ async function showProductDetails(productId) {
 // Warehouse action bar functions
 function showWarehouseAction(action) {
     switch(action) {
-        case 'receive':
-            showReceiveInventoryModal();
-            break;
         case 'sell':
             showSellInventoryModal();
-            break;
-        case 'procurement':
-            showProcurementModal();
             break;
     }
 }
@@ -1608,3 +1632,671 @@ setInterval(() => {
         loadDashboard();
     }
 }, 30000);
+
+// ==================== POS (КАССА) FUNCTIONS ====================
+
+// Load POS section
+async function loadPOS() {
+    try {
+        const response = await apiCall('/api/warehouse/products-all');
+        if (!response) return;
+        
+        allProducts = await response.json();
+        loadPOSCategories();
+    } catch (error) {
+        console.error('Load POS error:', error);
+    }
+}
+
+// Load POS categories
+function loadPOSCategories() {
+    posCurrentCategory = null;
+    posCurrentSubcategory = null;
+    
+    // Get unique categories
+    const uniqueCategories = {};
+    allProducts.forEach(p => {
+        if (!uniqueCategories[p.category_id]) {
+            uniqueCategories[p.category_id] = {
+                id: p.category_id,
+                name: p.category_name,
+                icon: p.category_icon
+            };
+        }
+    });
+    
+    let html = '';
+    Object.values(uniqueCategories).forEach(cat => {
+        html += `
+            <div class="pos-item" onclick="loadPOSSubcategories(${cat.id}, '${cat.name}')">
+                <div class="pos-item-info">
+                    <div class="pos-item-name">${cat.icon || '📦'} ${cat.name}</div>
+                    <div class="pos-item-stock">Категория</div>
+                </div>
+                <div style="font-size: 24px;">›</div>
+            </div>
+        `;
+    });
+    
+    document.getElementById('posItemsList').innerHTML = html || '<p style="text-align:center; color:#ccc;">Нет категорий</p>';
+    document.getElementById('posBreadcrumb').innerHTML = '<div class="pos-breadcrumb-item" onclick="loadPOSCategories()">📦 Все категории</div>';
+}
+
+// Load POS subcategories
+function loadPOSSubcategories(categoryId, categoryName) {
+    posCurrentCategory = categoryId;
+    posCurrentSubcategory = null;
+    
+    const uniqueSubcategories = {};
+    allProducts.filter(p => p.category_id === categoryId).forEach(p => {
+        if (!uniqueSubcategories[p.subcategory_id]) {
+            uniqueSubcategories[p.subcategory_id] = {
+                id: p.subcategory_id,
+                name: p.subcategory_name
+            };
+        }
+    });
+    
+    let html = '';
+    Object.values(uniqueSubcategories).forEach(sub => {
+        html += `
+            <div class="pos-item" onclick="loadPOSProducts(${sub.id}, '${sub.name}')">
+                <div class="pos-item-info">
+                    <div class="pos-item-name">📋 ${sub.name}</div>
+                    <div class="pos-item-stock">Подкатегория</div>
+                </div>
+                <div style="font-size: 24px;">›</div>
+            </div>
+        `;
+    });
+    
+    document.getElementById('posItemsList').innerHTML = html;
+    document.getElementById('posBreadcrumb').innerHTML = `
+        <div class="pos-breadcrumb-item" onclick="loadPOSCategories()">📦 Все категории</div>
+        <div class="pos-breadcrumb-item">${categoryName}</div>
+    `;
+}
+
+// Load POS products
+function loadPOSProducts(subcategoryId, subcategoryName) {
+    posCurrentSubcategory = subcategoryId;
+    
+    const products = allProducts.filter(p => p.subcategory_id === subcategoryId);
+    
+    let html = '';
+    products.forEach(p => {
+        const stockClass = p.stock_quantity <= 0 ? 'out' : (p.stock_quantity < 5 ? 'low' : '');
+        const stockText = p.stock_quantity <= 0 ? 'Нет в наличии' : `В наличии: ${p.stock_quantity} шт`;
+        
+        html += `
+            <div class="pos-item" onclick="addToPOSReceipt(${p.id})" ${p.stock_quantity <= 0 ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+                <div class="pos-item-info">
+                    <div class="pos-item-name">${p.name}</div>
+                    <div class="pos-item-stock ${stockClass}">${stockText}</div>
+                </div>
+                <div class="pos-item-price">$${(p.sale_price || 0).toFixed(2)}</div>
+            </div>
+        `;
+    });
+    
+    document.getElementById('posItemsList').innerHTML = html || '<p style="text-align:center; color:#ccc;">Нет товаров</p>';
+    
+    const categoryName = allProducts.find(p => p.subcategory_id === subcategoryId)?.category_name || '';
+    document.getElementById('posBreadcrumb').innerHTML = `
+        <div class="pos-breadcrumb-item" onclick="loadPOSCategories()">📦 Все категории</div>
+        <div class="pos-breadcrumb-item" onclick="loadPOSSubcategories(${posCurrentCategory}, '${categoryName}')">${categoryName}</div>
+        <div class="pos-breadcrumb-item">${subcategoryName}</div>
+    `;
+}
+
+// Search POS products
+function searchPOSProducts() {
+    const query = document.getElementById('posSearchInput').value.toLowerCase();
+    
+    if (!query) {
+        loadPOSCategories();
+        return;
+    }
+    
+    const filtered = allProducts.filter(p => 
+        p.name.toLowerCase().includes(query) || 
+        (p.sku && p.sku.toLowerCase().includes(query))
+    );
+    
+    let html = '';
+    filtered.forEach(p => {
+        const stockClass = p.stock_quantity <= 0 ? 'out' : (p.stock_quantity < 5 ? 'low' : '');
+        const stockText = p.stock_quantity <= 0 ? 'Нет в наличии' : `В наличии: ${p.stock_quantity} шт`;
+        
+        html += `
+            <div class="pos-item" onclick="addToPOSReceipt(${p.id})" ${p.stock_quantity <= 0 ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+                <div class="pos-item-info">
+                    <div class="pos-item-name">${p.name}</div>
+                    <div class="pos-item-stock ${stockClass}">${stockText} • ${p.category_name} › ${p.subcategory_name}</div>
+                </div>
+                <div class="pos-item-price">$${(p.sale_price || 0).toFixed(2)}</div>
+            </div>
+        `;
+    });
+    
+    document.getElementById('posItemsList').innerHTML = html || '<p style="text-align:center; color:#ccc;">Ничего не найдено</p>';
+    document.getElementById('posBreadcrumb').innerHTML = `
+        <div class="pos-breadcrumb-item" onclick="loadPOSCategories(); document.getElementById('posSearchInput').value=''">📦 Все категории</div>
+        <div class="pos-breadcrumb-item">🔍 Результаты поиска: "${query}"</div>
+    `;
+}
+
+// Add item to POS receipt
+function addToPOSReceipt(productId) {
+    const product = allProducts.find(p => p.id === productId);
+    
+    if (!product || product.stock_quantity <= 0) {
+        alert('Товар отсутствует на складе');
+        return;
+    }
+    
+    const existingItem = posReceipt.find(item => item.product_id === productId);
+    
+    if (existingItem) {
+        if (existingItem.quantity >= product.stock_quantity) {
+            alert(`Недостаточно товара на складе (доступно: ${product.stock_quantity})`);
+            return;
+        }
+        existingItem.quantity++;
+        existingItem.total_price = existingItem.quantity * existingItem.unit_price;
+    } else {
+        posReceipt.push({
+            product_id: productId,
+            name: product.name,
+            unit_price: product.sale_price || 0,
+            quantity: 1,
+            total_price: product.sale_price || 0,
+            max_quantity: product.stock_quantity
+        });
+    }
+    
+    updatePOSReceipt();
+}
+
+// Update POS receipt display
+function updatePOSReceipt() {
+    if (posReceipt.length === 0) {
+        document.getElementById('posReceiptItems').innerHTML = '<div class="pos-receipt-empty">Добавьте товары из каталога</div>';
+        document.getElementById('posTotals').style.display = 'none';
+        document.getElementById('posCompleteBtn').disabled = true;
+        return;
+    }
+    
+    let html = '';
+    posReceipt.forEach((item, index) => {
+        html += `
+            <div class="pos-receipt-item">
+                <div class="pos-receipt-item-header">
+                    <div class="pos-receipt-item-name">${item.name}</div>
+                    <button class="pos-receipt-item-remove" onclick="removeFromPOSReceipt(${index})">✕</button>
+                </div>
+                <div class="pos-receipt-item-controls">
+                    <div class="pos-quantity-control">
+                        <button class="pos-quantity-btn" onclick="changePOSQuantity(${index}, -1)">−</button>
+                        <div class="pos-quantity-value">${item.quantity}</div>
+                        <button class="pos-quantity-btn" onclick="changePOSQuantity(${index}, 1)">+</button>
+                    </div>
+                    <div class="pos-receipt-item-total">$${item.total_price.toFixed(2)}</div>
+                </div>
+            </div>
+        `;
+    });
+    
+    document.getElementById('posReceiptItems').innerHTML = html;
+    
+    const totalItems = posReceipt.reduce((sum, item) => sum + item.quantity, 0);
+    const totalAmount = posReceipt.reduce((sum, item) => sum + item.total_price, 0);
+    
+    document.getElementById('posTotalItems').textContent = `${totalItems} шт`;
+    document.getElementById('posTotalAmount').textContent = `$${totalAmount.toFixed(2)}`;
+    document.getElementById('posTotals').style.display = 'block';
+    document.getElementById('posCompleteBtn').disabled = false;
+}
+
+// Change quantity in POS receipt
+function changePOSQuantity(index, delta) {
+    const item = posReceipt[index];
+    const newQty = item.quantity + delta;
+    
+    if (newQty <= 0) {
+        removeFromPOSReceipt(index);
+        return;
+    }
+    
+    if (newQty > item.max_quantity) {
+        alert(`Недостаточно товара на складе (доступно: ${item.max_quantity})`);
+        return;
+    }
+    
+    item.quantity = newQty;
+    item.total_price = item.quantity * item.unit_price;
+    updatePOSReceipt();
+}
+
+// Remove item from POS receipt
+function removeFromPOSReceipt(index) {
+    posReceipt.splice(index, 1);
+    updatePOSReceipt();
+}
+
+// Clear POS receipt
+function clearPOSReceipt() {
+    if (posReceipt.length === 0) return;
+    
+    if (confirm('Очистить чек?')) {
+        posReceipt = [];
+        updatePOSReceipt();
+    }
+}
+
+// Show POS checkout modal
+function showPOSCheckout() {
+    if (posReceipt.length === 0) return;
+    
+    const totalAmount = posReceipt.reduce((sum, item) => sum + item.total_price, 0);
+    
+    let itemsHTML = '';
+    posReceipt.forEach(item => {
+        itemsHTML += `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                <span>${item.name} × ${item.quantity}</span>
+                <span>$${item.total_price.toFixed(2)}</span>
+            </div>
+        `;
+    });
+    
+    document.getElementById('posCheckoutItemsList').innerHTML = itemsHTML;
+    document.getElementById('posCheckoutSubtotal').textContent = `$${totalAmount.toFixed(2)}`;
+    document.getElementById('posCheckoutFinal').textContent = `$${totalAmount.toFixed(2)}`;
+    
+    document.getElementById('posDiscountType').value = 'none';
+    document.getElementById('posDiscountValue').value = '';
+    document.getElementById('posDiscountValue').disabled = true;
+    
+    document.getElementById('posCheckoutModal').style.display = 'block';
+}
+
+// Calculate POS discount
+function calculatePOSDiscount() {
+    const totalAmount = posReceipt.reduce((sum, item) => sum + item.total_price, 0);
+    const discountType = document.getElementById('posDiscountType').value;
+    const discountValue = parseFloat(document.getElementById('posDiscountValue').value) || 0;
+    
+    document.getElementById('posDiscountValue').disabled = discountType === 'none';
+    
+    let finalAmount = totalAmount;
+    
+    if (discountType === 'percent') {
+        finalAmount = totalAmount * (1 - discountValue / 100);
+    } else if (discountType === 'amount') {
+        finalAmount = totalAmount - discountValue;
+    }
+    
+    finalAmount = Math.max(0, finalAmount);
+    
+    document.getElementById('posCheckoutFinal').textContent = `$${finalAmount.toFixed(2)}`;
+}
+
+// Complete POS sale
+async function completePOSSale() {
+    const totalAmount = posReceipt.reduce((sum, item) => sum + item.total_price, 0);
+    const discountType = document.getElementById('posDiscountType').value;
+    const discountValue = parseFloat(document.getElementById('posDiscountValue').value) || 0;
+    const finalAmount = parseFloat(document.getElementById('posCheckoutFinal').textContent.replace('$', ''));
+    
+    const saleData = {
+        items: posReceipt,
+        discount_type: discountType === 'none' ? null : discountType,
+        discount_value: discountType === 'none' ? 0 : discountValue,
+        total_amount: totalAmount,
+        final_amount: finalAmount
+    };
+    
+    try {
+        const response = await apiCall('/api/pos/sale', {
+            method: 'POST',
+            body: JSON.stringify(saleData)
+        });
+        
+        if (response && response.ok) {
+            const result = await response.json();
+            alert(`✅ Продажа #${result.sale_id} успешно завершена!\nСумма: $${finalAmount.toFixed(2)}`);
+            
+            posReceipt = [];
+            updatePOSReceipt();
+            closeModal('posCheckoutModal');
+            
+            // Reload products to update stock
+            loadPOS();
+        } else {
+            const error = await response.json();
+            alert('Ошибка: ' + (error.error || 'Не удалось завершить продажу'));
+        }
+    } catch (error) {
+        console.error('Complete sale error:', error);
+        alert('Ошибка при завершении продажи');
+    }
+}
+
+// ==================== RECEIVING (ОПРИХОДОВАНИЕ) FUNCTIONS ====================
+
+// Show receiving interface
+function showReceivingInterface() {
+    receivingItems = [];
+    document.getElementById('receivingModal').style.display = 'block';
+    document.getElementById('receivingItemsList').innerHTML = '<p style="color: #ccc; text-align: center; padding: 40px;">Нажмите "Добавить товар" для начала оприходования</p>';
+    document.getElementById('receivingSaveBtn').style.display = 'none';
+}
+
+// Show receiving search
+async function showReceivingSearch() {
+    try {
+        const response = await apiCall('/api/warehouse/products-all');
+        if (!response) return;
+        
+        allProducts = await response.json();
+        
+        document.getElementById('receivingSearchModal').style.display = 'block';
+        loadReceivingCategories();
+    } catch (error) {
+        console.error('Load products error:', error);
+    }
+}
+
+// Load receiving categories
+function loadReceivingCategories() {
+    receivingCurrentCategory = null;
+    receivingCurrentSubcategory = null;
+    
+    const uniqueCategories = {};
+    allProducts.forEach(p => {
+        if (!uniqueCategories[p.category_id]) {
+            uniqueCategories[p.category_id] = {
+                id: p.category_id,
+                name: p.category_name,
+                icon: p.category_icon
+            };
+        }
+    });
+    
+    let html = '';
+    Object.values(uniqueCategories).forEach(cat => {
+        html += `
+            <div class="pos-item" onclick="loadReceivingSubcategories(${cat.id}, '${cat.name}')">
+                <div class="pos-item-info">
+                    <div class="pos-item-name">${cat.icon || '📦'} ${cat.name}</div>
+                    <div class="pos-item-stock">Категория</div>
+                </div>
+                <div style="font-size: 24px;">›</div>
+            </div>
+        `;
+    });
+    
+    document.getElementById('receivingSearchList').innerHTML = html;
+    document.getElementById('receivingBreadcrumb').innerHTML = '<div class="pos-breadcrumb-item" onclick="loadReceivingCategories()">📦 Все категории</div>';
+}
+
+// Load receiving subcategories
+function loadReceivingSubcategories(categoryId, categoryName) {
+    receivingCurrentCategory = categoryId;
+    
+    const uniqueSubcategories = {};
+    allProducts.filter(p => p.category_id === categoryId).forEach(p => {
+        if (!uniqueSubcategories[p.subcategory_id]) {
+            uniqueSubcategories[p.subcategory_id] = {
+                id: p.subcategory_id,
+                name: p.subcategory_name
+            };
+        }
+    });
+    
+    let html = '';
+    Object.values(uniqueSubcategories).forEach(sub => {
+        html += `
+            <div class="pos-item" onclick="loadReceivingProducts(${sub.id}, '${sub.name}')">
+                <div class="pos-item-info">
+                    <div class="pos-item-name">📋 ${sub.name}</div>
+                    <div class="pos-item-stock">Подкатегория</div>
+                </div>
+                <div style="font-size: 24px;">›</div>
+            </div>
+        `;
+    });
+    
+    document.getElementById('receivingSearchList').innerHTML = html;
+    document.getElementById('receivingBreadcrumb').innerHTML = `
+        <div class="pos-breadcrumb-item" onclick="loadReceivingCategories()">📦 Все категории</div>
+        <div class="pos-breadcrumb-item">${categoryName}</div>
+    `;
+}
+
+// Load receiving products
+function loadReceivingProducts(subcategoryId, subcategoryName) {
+    const products = allProducts.filter(p => p.subcategory_id === subcategoryId);
+    
+    let html = '';
+    products.forEach(p => {
+        const alreadyAdded = receivingItems.find(item => item.product_id === p.id);
+        
+        html += `
+            <div class="pos-item" onclick="addToReceiving(${p.id})" ${alreadyAdded ? 'style="opacity: 0.5;"' : ''}>
+                <div class="pos-item-info">
+                    <div class="pos-item-name">${p.name} ${alreadyAdded ? '✓' : ''}</div>
+                    <div class="pos-item-stock">Текущий остаток: ${p.stock_quantity} шт</div>
+                </div>
+                <div style="font-size: 20px;">${alreadyAdded ? '✓' : '+'}</div>
+            </div>
+        `;
+    });
+    
+    document.getElementById('receivingSearchList').innerHTML = html;
+    
+    const categoryName = allProducts.find(p => p.subcategory_id === subcategoryId)?.category_name || '';
+    document.getElementById('receivingBreadcrumb').innerHTML = `
+        <div class="pos-breadcrumb-item" onclick="loadReceivingCategories()">📦 Все категории</div>
+        <div class="pos-breadcrumb-item" onclick="loadReceivingSubcategories(${receivingCurrentCategory}, '${categoryName}')">${categoryName}</div>
+        <div class="pos-breadcrumb-item">${subcategoryName}</div>
+    `;
+}
+
+// Search receiving products
+function searchReceivingProducts() {
+    const query = document.getElementById('receivingSearchInput').value.toLowerCase();
+    
+    if (!query) {
+        loadReceivingCategories();
+        return;
+    }
+    
+    const filtered = allProducts.filter(p => 
+        p.name.toLowerCase().includes(query) || 
+        (p.sku && p.sku.toLowerCase().includes(query))
+    );
+    
+    let html = '';
+    filtered.forEach(p => {
+        const alreadyAdded = receivingItems.find(item => item.product_id === p.id);
+        
+        html += `
+            <div class="pos-item" onclick="addToReceiving(${p.id})" ${alreadyAdded ? 'style="opacity: 0.5;"' : ''}>
+                <div class="pos-item-info">
+                    <div class="pos-item-name">${p.name} ${alreadyAdded ? '✓' : ''}</div>
+                    <div class="pos-item-stock">Остаток: ${p.stock_quantity} шт • ${p.category_name} › ${p.subcategory_name}</div>
+                </div>
+                <div style="font-size: 20px;">${alreadyAdded ? '✓' : '+'}</div>
+            </div>
+        `;
+    });
+    
+    document.getElementById('receivingSearchList').innerHTML = html;
+}
+
+// Add product to receiving list
+function addToReceiving(productId) {
+    const product = allProducts.find(p => p.id === productId);
+    const alreadyAdded = receivingItems.find(item => item.product_id === productId);
+    
+    if (alreadyAdded) {
+        alert('Товар уже добавлен в список');
+        return;
+    }
+    
+    receivingItems.push({
+        product_id: productId,
+        name: product.name,
+        sku: product.sku,
+        current_stock: product.stock_quantity,
+        purchase_price: product.purchase_price || 0,
+        sale_price: product.sale_price || 0,
+        quantity: 1
+    });
+    
+    updateReceivingList();
+    closeModal('receivingSearchModal');
+}
+
+// Update receiving list display
+function updateReceivingList() {
+    if (receivingItems.length === 0) {
+        document.getElementById('receivingItemsList').innerHTML = '<p style="color: #ccc; text-align: center; padding: 40px;">Нажмите "Добавить товар" для начала оприходования</p>';
+        document.getElementById('receivingSaveBtn').style.display = 'none';
+        return;
+    }
+    
+    let html = '<div style="display: flex; flex-direction: column; gap: 15px;">';
+    
+    receivingItems.forEach((item, index) => {
+        html += `
+            <div style="background: #3d3d3d; padding: 20px; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <strong style="font-size: 16px;">${item.name}</strong>
+                    <button class="btn btn-danger" onclick="removeFromReceiving(${index})" style="padding: 5px 10px;">Удалить</button>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                    <div class="form-group" style="margin: 0;">
+                        <label>Количество</label>
+                        <input type="number" value="${item.quantity}" min="1" onchange="updateReceivingItem(${index}, 'quantity', this.value)">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>Цена закупки ($)</label>
+                        <input type="number" value="${item.purchase_price}" step="0.01" onchange="updateReceivingItem(${index}, 'purchase_price', this.value)">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>Цена продажи ($)</label>
+                        <input type="number" value="${item.sale_price}" step="0.01" onchange="updateReceivingItem(${index}, 'sale_price', this.value)">
+                    </div>
+                </div>
+                
+                <div style="margin-top: 10px; color: #ccc; font-size: 14px;">
+                    Текущий остаток: ${item.current_stock} шт → После оприходования: ${item.current_stock + parseInt(item.quantity)} шт
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    
+    document.getElementById('receivingItemsList').innerHTML = html;
+    document.getElementById('receivingSaveBtn').style.display = 'block';
+}
+
+// Update receiving item
+function updateReceivingItem(index, field, value) {
+    receivingItems[index][field] = field === 'quantity' ? parseInt(value) : parseFloat(value);
+    updateReceivingList();
+}
+
+// Remove from receiving
+function removeFromReceiving(index) {
+    receivingItems.splice(index, 1);
+    updateReceivingList();
+}
+
+// Save receiving
+async function saveReceiving() {
+    if (receivingItems.length === 0) return;
+    
+    if (!confirm(`Оприходовать ${receivingItems.length} товар(ов)?`)) return;
+    
+    try {
+        const response = await apiCall('/api/warehouse/inventory/receive-batch', {
+            method: 'POST',
+            body: JSON.stringify({ items: receivingItems })
+        });
+        
+        if (response && response.ok) {
+            alert('✅ Товары успешно оприходованы!');
+            receivingItems = [];
+            closeModal('receivingModal');
+            
+            // Reload warehouse if on that section
+            if (currentWarehouseTab === 'stock') {
+                loadCategories();
+            }
+        } else {
+            const error = await response.json();
+            alert('Ошибка: ' + (error.error || 'Не удалось оприходовать товары'));
+        }
+    } catch (error) {
+        console.error('Save receiving error:', error);
+        alert('Ошибка при сохранении');
+    }
+}
+
+// ==================== EDIT PRODUCT PRICES ====================
+
+let currentEditProductId = null;
+
+// Show edit product modal
+async function showEditProductModal(productId) {
+    currentEditProductId = productId;
+    
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    document.getElementById('editProductName').value = product.name;
+    document.getElementById('editProductSKU').value = product.sku || '';
+    document.getElementById('editProductPurchasePrice').value = product.purchase_price || '';
+    document.getElementById('editProductSalePrice').value = product.sale_price || '';
+    document.getElementById('editProductMinStock').value = product.min_stock_level || 0;
+    
+    document.getElementById('editProductModal').style.display = 'block';
+}
+
+// Save product edit
+async function saveProductEdit() {
+    if (!currentEditProductId) return;
+    
+    const data = {
+        sku: document.getElementById('editProductSKU').value,
+        purchase_price: parseFloat(document.getElementById('editProductPurchasePrice').value) || null,
+        sale_price: parseFloat(document.getElementById('editProductSalePrice').value) || null,
+        min_stock_level: parseInt(document.getElementById('editProductMinStock').value) || 0
+    };
+    
+    try {
+        const response = await apiCall(`/api/warehouse/products/${currentEditProductId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+        
+        if (response && response.ok) {
+            alert('✅ Товар обновлен!');
+            closeModal('editProductModal');
+            
+            // Reload products
+            loadProducts(currentSubcategoryId);
+        } else {
+            alert('Ошибка при обновлении товара');
+        }
+    } catch (error) {
+        console.error('Update product error:', error);
+        alert('Ошибка при обновлении');
+    }
+        }
