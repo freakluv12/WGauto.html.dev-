@@ -261,7 +261,7 @@ app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
   }
 });
 
-// CARS ROUTES
+// CARS ROUTES (оставляем как было)
 app.get('/api/cars', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
@@ -613,6 +613,51 @@ app.get('/api/warehouse/products/:subcategoryId', authenticateToken, async (req,
   }
 });
 
+// НОВЫЙ ENDPOINT: Получить все товары с последней ценой закупки
+app.get('/api/warehouse/products/all', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.role === 'ADMIN' ? null : req.user.id;
+    
+    const query = `
+      SELECT 
+        p.id,
+        p.name,
+        p.sku,
+        c.name as category_name,
+        sc.name as subcategory_name,
+        COALESCE(SUM(i.quantity), 0) as available_quantity,
+        (
+          SELECT i2.purchase_price 
+          FROM inventory i2 
+          WHERE i2.product_id = p.id AND i2.purchase_price IS NOT NULL
+          ORDER BY i2.received_date DESC 
+          LIMIT 1
+        ) as last_purchase_price,
+        (
+          SELECT i2.currency 
+          FROM inventory i2 
+          WHERE i2.product_id = p.id AND i2.currency IS NOT NULL
+          ORDER BY i2.received_date DESC 
+          LIMIT 1
+        ) as last_currency
+      FROM products p
+      JOIN subcategories sc ON p.subcategory_id = sc.id
+      JOIN categories c ON sc.category_id = c.id
+      LEFT JOIN inventory i ON p.id = i.product_id
+      ${userId ? 'WHERE p.user_id = $1' : ''}
+      GROUP BY p.id, p.name, p.sku, c.name, sc.name
+      ORDER BY c.name, sc.name, p.name
+    `;
+    
+    const params = userId ? [userId] : [];
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get all products error:', error);
+    res.status(500).json({ error: 'Failed to fetch products' });
+  }
+});
+
 app.post('/api/warehouse/products', authenticateToken, async (req, res) => {
   try {
     const { subcategory_id, name, description, sku, min_stock_level } = req.body;
@@ -792,172 +837,6 @@ app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
   }
 });
 
-// NEW: Enhanced Analytics with Filters
-app.get('/api/warehouse/analytics-detailed', authenticateToken, async (req, res) => {
-  try {
-    const { 
-      start_date, 
-      end_date, 
-      category_id, 
-      subcategory_id,
-      sales_compare,
-      sales_value,
-      revenue_compare,
-      revenue_value,
-      profit_compare,
-      profit_value,
-      margin_compare,
-      margin_value
-    } = req.query;
-    
-    const userId = req.user.role === 'ADMIN' ? null : req.user.id;
-    
-    // Default to last 30 days if no dates specified
-    const defaultEndDate = new Date().toISOString().split('T')[0];
-    const defaultStartDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    
-    const finalStartDate = start_date || defaultStartDate;
-    const finalEndDate = end_date || defaultEndDate;
-    
-    let query = `
-      SELECT 
-        p.id as product_id,
-        p.name as product_name,
-        p.sku,
-        c.name as category_name,
-        sc.name as subcategory_name,
-        COALESCE(SUM(s.quantity), 0) as total_sold,
-        COALESCE(SUM(s.sale_price * s.quantity), 0) as total_revenue,
-        COALESCE(SUM(s.cost_price * s.quantity), 0) as total_cost,
-        COALESCE(SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity), 0) as net_profit,
-        CASE 
-          WHEN SUM(s.cost_price * s.quantity) > 0 
-          THEN ((SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity)) / SUM(s.cost_price * s.quantity) * 100)
-          ELSE 0 
-        END as profit_margin_percent,
-        s.currency
-      FROM products p
-      JOIN subcategories sc ON p.subcategory_id = sc.id
-      JOIN categories c ON sc.category_id = c.id
-      LEFT JOIN inventory_sales s ON p.id = s.product_id
-    `;
-    
-    let conditions = [];
-    let params = [];
-    let paramCount = 0;
-    
-    if (userId) {
-      paramCount++;
-      conditions.push(`p.user_id = $${paramCount}`);
-      params.push(userId);
-    }
-    
-    // Date range filter
-    paramCount++;
-    conditions.push(`(s.sale_date >= $${paramCount} OR s.sale_date IS NULL)`);
-    params.push(finalStartDate);
-    
-    paramCount++;
-    conditions.push(`(s.sale_date <= $${paramCount} OR s.sale_date IS NULL)`);
-    params.push(finalEndDate);
-    
-    if (category_id) {
-      paramCount++;
-      conditions.push(`c.id = $${paramCount}`);
-      params.push(category_id);
-    }
-    
-    if (subcategory_id) {
-      paramCount++;
-      conditions.push(`sc.id = $${paramCount}`);
-      params.push(subcategory_id);
-    }
-    
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ');
-    }
-    
-    query += ' GROUP BY p.id, p.name, p.sku, c.name, sc.name, s.currency';
-    
-    // Apply HAVING clauses for comparison filters
-    let havingConditions = [];
-    
-    if (sales_compare && sales_value) {
-      const operator = sales_compare === 'more' ? '>' : '<';
-      havingConditions.push(`COALESCE(SUM(s.quantity), 0) ${operator} ${parseInt(sales_value)}`);
-    }
-    
-    if (revenue_compare && revenue_value) {
-      const operator = revenue_compare === 'more' ? '>' : '<';
-      havingConditions.push(`COALESCE(SUM(s.sale_price * s.quantity), 0) ${operator} ${parseFloat(revenue_value)}`);
-    }
-    
-    if (profit_compare && profit_value) {
-      const operator = profit_compare === 'more' ? '>' : '<';
-      havingConditions.push(`COALESCE(SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity), 0) ${operator} ${parseFloat(profit_value)}`);
-    }
-    
-    if (margin_compare && margin_value) {
-      const operator = margin_compare === 'more' ? '>' : '<';
-      havingConditions.push(`
-        CASE 
-          WHEN SUM(s.cost_price * s.quantity) > 0 
-          THEN ((SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity)) / SUM(s.cost_price * s.quantity) * 100)
-          ELSE 0 
-        END ${operator} ${parseFloat(margin_value)}
-      `);
-    }
-    
-    if (havingConditions.length > 0) {
-      query += ' HAVING ' + havingConditions.join(' AND ');
-    }
-    
-    query += ' ORDER BY total_revenue DESC';
-    
-    const result = await pool.query(query, params);
-    
-    // Calculate totals by currency
-    const totals = result.rows.reduce((acc, row) => {
-      const curr = row.currency || 'USD';
-      if (!acc[curr]) {
-        acc[curr] = {
-          currency: curr,
-          total_sold: 0,
-          total_revenue: 0,
-          total_cost: 0,
-          net_profit: 0
-        };
-      }
-      acc[curr].total_sold += parseInt(row.total_sold || 0);
-      acc[curr].total_revenue += parseFloat(row.total_revenue || 0);
-      acc[curr].total_cost += parseFloat(row.total_cost || 0);
-      acc[curr].net_profit += parseFloat(row.net_profit || 0);
-      return acc;
-    }, {});
-    
-    Object.keys(totals).forEach(curr => {
-      if (totals[curr].total_cost > 0) {
-        totals[curr].profit_margin_percent = (totals[curr].net_profit / totals[curr].total_cost * 100).toFixed(2);
-      } else {
-        totals[curr].profit_margin_percent = 0;
-      }
-    });
-    
-    res.json({
-      items: result.rows,
-      totals: Object.values(totals),
-      period: {
-        start: finalStartDate,
-        end: finalEndDate
-      }
-    });
-  } catch (error) {
-    console.error('Analytics detailed error:', error);
-    res.status(500).json({ error: 'Failed to fetch analytics' });
-  }
-});
-
-// Keep old analytics endpoint for backwards compatibility
 app.get('/api/warehouse/analytics', authenticateToken, async (req, res) => {
   try {
     const { start_date, end_date, category_id, subcategory_id } = req.query;
