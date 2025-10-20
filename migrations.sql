@@ -1,9 +1,6 @@
--- Миграция для складской системы WGauto CRM v2.1
--- Добавлены цены товаров и POS система
+-- Миграция для складской системы WGauto CRM
 
--- 1. Добавить рубль в поддерживаемые валюты (уже учтено в коде)
-
--- 2. Создать таблицу категорий
+-- 1. Создать таблицу категорий
 CREATE TABLE IF NOT EXISTS categories (
   id SERIAL PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
@@ -13,7 +10,7 @@ CREATE TABLE IF NOT EXISTS categories (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. Создать таблицу подкатегорий
+-- 2. Создать таблицу подкатегорий
 CREATE TABLE IF NOT EXISTS subcategories (
   id SERIAL PRIMARY KEY,
   category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
@@ -23,7 +20,7 @@ CREATE TABLE IF NOT EXISTS subcategories (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Создать таблицу товаров (products)
+-- 3. Создать таблицу товаров (products)
 CREATE TABLE IF NOT EXISTS products (
   id SERIAL PRIMARY KEY,
   subcategory_id INTEGER REFERENCES subcategories(id) ON DELETE CASCADE,
@@ -33,13 +30,15 @@ CREATE TABLE IF NOT EXISTS products (
   min_stock_level INTEGER DEFAULT 0,
   purchase_price DECIMAL(10,2),
   sale_price DECIMAL(10,2),
+  currency VARCHAR(3) DEFAULT 'GEL',
   user_id INTEGER REFERENCES users(id),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4a. Добавить поля цен если таблица уже существует
+-- 4. Добавить поля цен в products если не существуют
 ALTER TABLE products ADD COLUMN IF NOT EXISTS purchase_price DECIMAL(10,2);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS sale_price DECIMAL(10,2);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'GEL';
 
 -- 5. Создать таблицу складских остатков (inventory)
 CREATE TABLE IF NOT EXISTS inventory (
@@ -103,39 +102,15 @@ CREATE TABLE IF NOT EXISTS inventory_sales (
 ALTER TABLE parts ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id);
 ALTER TABLE parts ADD COLUMN IF NOT EXISTS converted_to_inventory BOOLEAN DEFAULT false;
 
--- 10. NEW: Создать таблицу POS продаж
-CREATE TABLE IF NOT EXISTS pos_sales (
-  id SERIAL PRIMARY KEY,
-  user_id INTEGER REFERENCES users(id),
-  discount_type VARCHAR(10),
-  discount_value DECIMAL(10,2) DEFAULT 0,
-  total_amount DECIMAL(10,2) NOT NULL,
-  final_amount DECIMAL(10,2) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 11. NEW: Создать таблицу позиций POS продаж
-CREATE TABLE IF NOT EXISTS pos_sale_items (
-  id SERIAL PRIMARY KEY,
-  sale_id INTEGER REFERENCES pos_sales(id) ON DELETE CASCADE,
-  product_id INTEGER REFERENCES products(id),
-  quantity INTEGER NOT NULL,
-  unit_price DECIMAL(10,2) NOT NULL,
-  total_price DECIMAL(10,2) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 12. Создать индексы для производительности
+-- 10. Создать индексы для производительности
 CREATE INDEX IF NOT EXISTS idx_products_subcategory ON products(subcategory_id);
 CREATE INDEX IF NOT EXISTS idx_inventory_product ON inventory(product_id);
 CREATE INDEX IF NOT EXISTS idx_inventory_source ON inventory(source_type, source_id);
 CREATE INDEX IF NOT EXISTS idx_sales_product ON inventory_sales(product_id);
 CREATE INDEX IF NOT EXISTS idx_sales_date ON inventory_sales(sale_date);
 CREATE INDEX IF NOT EXISTS idx_procurement_date ON procurements(procurement_date);
-CREATE INDEX IF NOT EXISTS idx_pos_sales_user ON pos_sales(user_id);
-CREATE INDEX IF NOT EXISTS idx_pos_sale_items_sale ON pos_sale_items(sale_id);
 
--- 13. Создать представление для аналитики
+-- 11. Создать представление для аналитики
 CREATE OR REPLACE VIEW inventory_analytics AS
 SELECT 
   p.id as product_id,
@@ -158,34 +133,7 @@ LEFT JOIN inventory i ON p.id = i.product_id
 LEFT JOIN inventory_sales s ON p.id = s.product_id
 GROUP BY p.id, p.name, c.name, sc.name, i.currency;
 
--- 14. Функция для автоматического обновления остатков при продаже
-CREATE OR REPLACE FUNCTION update_inventory_on_sale()
-RETURNS TRIGGER AS $$
-BEGIN
-  -- Уменьшить количество на складе
-  UPDATE inventory 
-  SET quantity = quantity - NEW.quantity
-  WHERE id = NEW.inventory_id;
-  
-  -- Проверить что не ушли в минус
-  IF (SELECT quantity FROM inventory WHERE id = NEW.inventory_id) < 0 THEN
-    RAISE EXCEPTION 'Insufficient inventory quantity';
-  END IF;
-  
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Создать триггер (если inventory_id используется)
-DROP TRIGGER IF EXISTS trigger_update_inventory ON inventory_sales;
--- Закомментировано, так как теперь используется FIFO логика в коде
--- CREATE TRIGGER trigger_update_inventory
---   AFTER INSERT ON inventory_sales
---   FOR EACH ROW
---   WHEN (NEW.inventory_id IS NOT NULL)
---   EXECUTE FUNCTION update_inventory_on_sale();
-
--- 15. Добавить начальные категории (примеры)
+-- 12. Добавить начальные категории (примеры)
 INSERT INTO categories (name, description, icon, user_id)
 SELECT 'Toyota', 'Запчасти для автомобилей Toyota', '🚗', id
 FROM users WHERE email = 'admin@wgauto.com'
@@ -201,4 +149,4 @@ SELECT 'Honda', 'Запчасти для автомобилей Honda', '🚕', 
 FROM users WHERE email = 'admin@wgauto.com'
 ON CONFLICT DO NOTHING;
 
--- Готово! База данных обновлена для POS системы и складской системы с ценами
+-- Готово! База данных обновлена для новой складской системы
