@@ -1,5 +1,4 @@
-// WGauto CRM - Складская система с аналитикой
-// Global variables
+// WGauto CRM - Final Version
 let currentUser = null;
 let currentCarId = null;
 let currentDate = new Date();
@@ -15,47 +14,25 @@ let categories = [];
 let subcategories = [];
 let products = [];
 let inventory = [];
-let currentWarehouseTab = 'stock'; // NEW: Track current warehouse tab
+let warehouseTab = 'stock'; // stock, receive, procurement
 
-// POS variables (NEW)
-let posReceipt = []; // Items in current receipt
-let allProducts = []; // All products for POS
-let posCurrentCategory = null;
-let posCurrentSubcategory = null;
+// Receive inventory
+let receiveItems = [];
 
-// Receiving variables (NEW)
-let receivingItems = []; // Items being received
-let receivingCurrentCategory = null;
-let receivingCurrentSubcategory = null;
+// POS variables
+let posCart = [];
+let posCategories = [];
+let posSubcategories = [];
+let posProducts = [];
+let posCurrentCategoryId = null;
+let posCurrentSubcategoryId = null;
 
-// Initialize app
 document.addEventListener('DOMContentLoaded', function() {
     checkAuthStatus();
-    setDefaultAnalyticsDates(); // NEW: Set default dates for analytics
 });
 
-// NEW: Set default analytics dates (last 30 days)
-function setDefaultAnalyticsDates() {
-    const today = new Date();
-    const thirtyDaysAgo = new Date(today);
-    thirtyDaysAgo.setDate(today.getDate() - 30);
-    
-    if (document.getElementById('analyticsStartDateFilter')) {
-        document.getElementById('analyticsStartDateFilter').value = thirtyDaysAgo.toISOString().split('T')[0];
-    }
-    if (document.getElementById('analyticsEndDateFilter')) {
-        document.getElementById('analyticsEndDateFilter').value = today.toISOString().split('T')[0];
-    }
-}
-
-// Currency helper
 function getCurrencySymbol(currency) {
-    const symbols = { 
-        USD: '$', 
-        EUR: '€', 
-        GEL: '₾',
-        RUB: '₽'
-    };
+    const symbols = { USD: '$', EUR: '€', GEL: '₾', RUB: '₽' };
     return symbols[currency] || currency;
 }
 
@@ -76,9 +53,7 @@ function checkAuthStatus() {
             } else {
                 showAuth();
             }
-        }).catch(() => {
-            showAuth();
-        });
+        }).catch(() => showAuth());
     } else {
         showAuth();
     }
@@ -102,19 +77,16 @@ function showRegisterForm() {
 async function attemptLogin() {
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
-
     if (!email || !password) {
         alert('Please enter email and password');
         return;
     }
-
     try {
         const response = await fetch('/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })
         });
-
         if (response.ok) {
             const data = await response.json();
             localStorage.setItem('token', data.token);
@@ -135,19 +107,16 @@ async function attemptLogin() {
 async function attemptRegister() {
     const email = document.getElementById('registerEmail').value;
     const password = document.getElementById('registerPassword').value;
-
     if (!email || !password) {
         alert('Please enter email and password');
         return;
     }
-
     try {
         const response = await fetch('/api/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })
         });
-
         if (response.ok) {
             const data = await response.json();
             localStorage.setItem('token', data.token);
@@ -177,15 +146,12 @@ function showApp() {
     document.getElementById('authScreen').style.display = 'none';
     document.getElementById('appScreen').style.display = 'flex';
     document.getElementById('userEmail').textContent = currentUser.email;
-    
     if (currentUser.role === 'ADMIN') {
         document.getElementById('adminNav').style.display = 'block';
     }
-    
     loadDashboard();
 }
 
-// API helper
 async function apiCall(endpoint, options = {}) {
     const token = localStorage.getItem('token');
     const defaultOptions = {
@@ -194,15 +160,12 @@ async function apiCall(endpoint, options = {}) {
             'Authorization': `Bearer ${token}`
         }
     };
-
     try {
         const response = await fetch(endpoint, { ...defaultOptions, ...options });
-        
         if (response.status === 401) {
             logout();
             return null;
         }
-
         return response;
     } catch (error) {
         console.error('API call error:', error);
@@ -210,51 +173,33 @@ async function apiCall(endpoint, options = {}) {
     }
 }
 
-// Navigation
 function showSection(sectionName) {
     const sections = document.querySelectorAll('.section');
     sections.forEach(section => section.classList.remove('active'));
-    
     const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => item.classList.remove('active'));
-    
     document.getElementById(sectionName).classList.add('active');
-    
     navItems.forEach(button => {
         if (button.onclick && button.onclick.toString().includes(sectionName)) {
             button.classList.add('active');
         }
     });
-    
     const titles = {
         dashboard: 'Dashboard',
         cars: 'Cars',
         rentals: 'Rentals',
         warehouse: 'Warehouse',
-        pos: 'Касса (POS)',
+        pos: 'Point of Sale',
         admin: 'Admin Panel'
     };
     document.getElementById('pageTitle').textContent = titles[sectionName];
-
     switch(sectionName) {
-        case 'dashboard':
-            loadDashboard();
-            break;
-        case 'cars':
-            loadCars();
-            break;
-        case 'rentals':
-            loadRentals();
-            break;
-        case 'warehouse':
-            loadWarehouse();
-            break;
-        case 'pos':
-            loadPOS();
-            break;
-        case 'admin':
-            loadUsers();
-            break;
+        case 'dashboard': loadDashboard(); break;
+        case 'cars': loadCars(); break;
+        case 'rentals': loadRentals(); break;
+        case 'warehouse': loadWarehouse(); break;
+        case 'pos': loadPOS(); break;
+        case 'admin': loadUsers(); break;
     }
 }
 
@@ -263,21 +208,15 @@ async function loadDashboard() {
     try {
         const response = await apiCall('/api/stats/dashboard');
         if (!response) return;
-
         const data = await response.json();
-        
         let statsHTML = '';
-        
         const currencies = ['USD', 'EUR', 'GEL', 'RUB'];
-        
         currencies.forEach(currency => {
             const income = data.income.find(i => i.currency === currency);
             const expense = data.expenses.find(e => e.currency === currency);
-            
             const incomeAmount = income ? parseFloat(income.total) : 0;
             const expenseAmount = expense ? parseFloat(expense.total) : 0;
             const profit = incomeAmount - expenseAmount;
-            
             if (incomeAmount > 0 || expenseAmount > 0) {
                 statsHTML += `
                     <div class="stat-card">
@@ -295,10 +234,8 @@ async function loadDashboard() {
                 `;
             }
         });
-
         const totalCars = data.cars.reduce((sum, car) => sum + parseInt(car.count), 0);
         const activeCars = data.cars.find(c => c.status === 'active')?.count || 0;
-        
         statsHTML += `
             <div class="stat-card">
                 <div class="stat-value">${totalCars}</div>
@@ -313,21 +250,18 @@ async function loadDashboard() {
                 <div class="stat-label">Active Rentals</div>
             </div>
         `;
-
         document.getElementById('statsGrid').innerHTML = statsHTML;
-
     } catch (error) {
         console.error('Dashboard load error:', error);
         document.getElementById('statsGrid').innerHTML = '<div class="loading">Error loading dashboard data</div>';
     }
 }
 
-// Cars functions (kept same as before)
+// Cars
 async function loadCars() {
     try {
         const response = await apiCall('/api/cars');
         if (!response) return;
-
         allCars = await response.json();
         filteredCars = [...allCars];
         displayCars();
@@ -339,7 +273,6 @@ async function loadCars() {
 
 function displayCars() {
     let carsHTML = '';
-
     if (filteredCars.length === 0) {
         carsHTML = '<div class="loading">No cars found</div>';
     } else {
@@ -359,26 +292,21 @@ function displayCars() {
             `;
         });
     }
-
     document.getElementById('carsGrid').innerHTML = carsHTML;
 }
 
 function searchCars() {
     const searchTerm = document.getElementById('carSearch').value.toLowerCase();
     const statusFilter = document.getElementById('carStatusFilter').value;
-
     filteredCars = allCars.filter(car => {
         const matchesSearch = !searchTerm || 
             car.brand.toLowerCase().includes(searchTerm) ||
             car.model.toLowerCase().includes(searchTerm) ||
             (car.vin && car.vin.toLowerCase().includes(searchTerm)) ||
             (car.year && car.year.toString().includes(searchTerm));
-        
         const matchesStatus = !statusFilter || car.status === statusFilter;
-
         return matchesSearch && matchesStatus;
     });
-
     displayCars();
 }
 
@@ -399,18 +327,15 @@ async function addCar() {
         price: parseFloat(document.getElementById('carPrice').value) || null,
         currency: document.getElementById('carCurrency').value
     };
-
     if (!carData.brand || !carData.model) {
         alert('Brand and model are required');
         return;
     }
-
     try {
         const response = await apiCall('/api/cars', {
             method: 'POST',
             body: JSON.stringify(carData)
         });
-
         if (response && response.ok) {
             closeModal('addCarModal');
             loadCars();
@@ -429,16 +354,12 @@ async function addCar() {
 
 async function showCarDetails(carId) {
     currentCarId = carId;
-    
     try {
         const response = await apiCall(`/api/cars/${carId}/details`);
         if (!response) return;
-
         const data = await response.json();
         const car = data.car;
-
         document.getElementById('carDetailsTitle').textContent = `${car.brand} ${car.model} ${car.year || ''}`;
-        
         const carInfoHTML = `
             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
                 <div>
@@ -455,11 +376,9 @@ async function showCarDetails(carId) {
             </div>
         `;
         document.getElementById('carInfoContent').innerHTML = carInfoHTML;
-
         displayCarProfitSummary(data.profitability);
         displayCarTransactions(data.transactions);
         displayCarRentals(data.rentals);
-
         document.getElementById('carDetailsModal').style.display = 'block';
     } catch (error) {
         console.error('Car details error:', error);
@@ -469,7 +388,6 @@ async function showCarDetails(carId) {
 
 function displayCarProfitSummary(profitData) {
     let summaryHTML = '';
-    
     if (profitData.length === 0) {
         summaryHTML = '<div class="profit-card"><div class="currency-label">No financial data</div></div>';
     } else {
@@ -477,7 +395,6 @@ function displayCarProfitSummary(profitData) {
             const income = parseFloat(profit.total_income) || 0;
             const expenses = parseFloat(profit.total_expenses) || 0;
             const net = income - expenses;
-            
             summaryHTML += `
                 <div class="profit-card">
                     <div class="currency-label">${profit.currency} Income</div>
@@ -494,20 +411,17 @@ function displayCarProfitSummary(profitData) {
             `;
         });
     }
-    
     document.getElementById('carProfitSummary').innerHTML = summaryHTML;
 }
 
 function displayCarTransactions(transactions) {
     let transactionsHTML = '';
-    
     if (transactions.length === 0) {
         transactionsHTML = '<tr><td colspan="5">No transactions</td></tr>';
     } else {
         transactions.forEach(transaction => {
             const typeClass = transaction.type === 'income' ? 'positive' : 'negative';
             const typeSymbol = transaction.type === 'income' ? '+' : '-';
-            
             transactionsHTML += `
                 <tr>
                     <td>${new Date(transaction.date).toLocaleDateString()}</td>
@@ -519,20 +433,17 @@ function displayCarTransactions(transactions) {
             `;
         });
     }
-    
     document.querySelector('#carTransactions tbody').innerHTML = transactionsHTML;
 }
 
 function displayCarRentals(rentals) {
     let rentalsHTML = '';
-    
     if (rentals.length === 0) {
         rentalsHTML = '<tr><td colspan="5">No rental history</td></tr>';
     } else {
         rentals.forEach(rental => {
             const startDate = new Date(rental.start_date).toLocaleDateString();
             const endDate = new Date(rental.end_date).toLocaleDateString();
-            
             rentalsHTML += `
                 <tr>
                     <td>${rental.client_name}</td>
@@ -544,7 +455,6 @@ function displayCarRentals(rentals) {
             `;
         });
     }
-    
     document.querySelector('#carRentalsTable tbody').innerHTML = rentalsHTML;
 }
 
@@ -555,18 +465,15 @@ async function addExpense() {
         description: document.getElementById('expenseDescription').value,
         category: document.getElementById('expenseCategory').value
     };
-
     if (!expenseData.amount || !expenseData.currency || !expenseData.category) {
         alert('Amount, currency, and category are required');
         return;
     }
-
     try {
         const response = await apiCall(`/api/cars/${currentCarId}/expense`, {
             method: 'POST',
             body: JSON.stringify(expenseData)
         });
-
         if (response && response.ok) {
             document.getElementById('expenseAmount').value = '';
             document.getElementById('expenseDescription').value = '';
@@ -583,12 +490,10 @@ async function dismantleCar() {
     if (!confirm('Are you sure you want to dismantle this car?')) {
         return;
     }
-
     try {
         const response = await apiCall(`/api/cars/${currentCarId}/dismantle`, {
             method: 'POST'
         });
-
         if (response && response.ok) {
             alert('Car dismantled successfully');
             closeModal('carDetailsModal');
@@ -604,26 +509,18 @@ async function dismantleCar() {
 function showCarTab(tabName) {
     const tabContents = document.querySelectorAll('#carDetailsModal .tab-content');
     tabContents.forEach(content => content.classList.remove('active'));
-    
     const tabButtons = document.querySelectorAll('#carDetailsModal .tab');
     tabButtons.forEach(button => button.classList.remove('active'));
-    
-    const tabMap = {
-        'info': 0,
-        'finances': 1,
-        'rentals': 2
-    };
-    
+    const tabMap = { 'info': 0, 'finances': 1, 'rentals': 2 };
     document.getElementById(`car${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`).classList.add('active');
     document.querySelectorAll('#carDetailsModal .tab')[tabMap[tabName]].classList.add('active');
 }
 
-// Rentals (kept same)
+// Rentals
 async function loadRentals() {
     try {
         const response = await apiCall('/api/rentals');
         if (!response) return;
-
         allRentals = await response.json();
         displayActiveRentals();
         displayRentalHistory();
@@ -637,7 +534,6 @@ async function loadRentals() {
 function displayActiveRentals() {
     const activeRentals = allRentals.filter(r => r.status === 'active');
     let rentalsHTML = '';
-    
     if (activeRentals.length === 0) {
         rentalsHTML = '<tr><td colspan="7">No active rentals</td></tr>';
     } else {
@@ -650,28 +546,23 @@ function displayActiveRentals() {
                     <td>${new Date(rental.end_date).toLocaleDateString()}</td>
                     <td>${getCurrencySymbol(rental.currency)}${rental.daily_price}/day</td>
                     <td>${getCurrencySymbol(rental.currency)}${rental.total_amount}</td>
-                    <td>
-                        <button class="btn" onclick="completeRental(${rental.id})">Complete</button>
-                    </td>
+                    <td><button class="btn" onclick="completeRental(${rental.id})">Complete</button></td>
                 </tr>
             `;
         });
     }
-    
     document.querySelector('#activeRentalsTable tbody').innerHTML = rentalsHTML;
 }
 
 function displayRentalHistory() {
     const completedRentals = allRentals.filter(r => r.status === 'completed');
     let historyHTML = '';
-    
     if (completedRentals.length === 0) {
         historyHTML = '<tr><td colspan="5">No rental history</td></tr>';
     } else {
         completedRentals.forEach(rental => {
             const startDate = new Date(rental.start_date).toLocaleDateString();
             const endDate = new Date(rental.end_date).toLocaleDateString();
-            
             historyHTML += `
                 <tr>
                     <td>${rental.brand} ${rental.model} ${rental.year || ''}</td>
@@ -683,31 +574,25 @@ function displayRentalHistory() {
             `;
         });
     }
-    
     document.querySelector('#historyTable tbody').innerHTML = historyHTML;
 }
 
 async function loadAvailableCarsForRental() {
     const response = await apiCall('/api/cars?status=active');
     if (!response) return;
-
     const availableCars = await response.json();
     let optionsHTML = '<option value="">Select a car...</option>';
-    
     availableCars.forEach(car => {
         optionsHTML += `<option value="${car.id}">${car.brand} ${car.model} ${car.year || ''}</option>`;
     });
-    
     document.getElementById('rentalCar').innerHTML = optionsHTML;
 }
 
 function showRentalTab(tabName) {
     const tabContents = document.querySelectorAll('#rentals .tab-content');
     tabContents.forEach(content => content.classList.remove('active'));
-    
     const tabButtons = document.querySelectorAll('#rentals .tab');
     tabButtons.forEach(button => button.classList.remove('active'));
-    
     if (tabName === 'active') {
         document.getElementById('activeRentals').classList.add('active');
         document.querySelector('#rentals .tab').classList.add('active');
@@ -736,18 +621,15 @@ async function addRental() {
         daily_price: parseFloat(document.getElementById('rentalPrice').value),
         currency: document.getElementById('rentalCurrency').value
     };
-
     if (!rentalData.car_id || !rentalData.client_name || !rentalData.start_date || !rentalData.end_date || !rentalData.daily_price) {
         alert('Please fill in all required fields');
         return;
     }
-
     try {
         const response = await apiCall('/api/rentals', {
             method: 'POST',
             body: JSON.stringify(rentalData)
         });
-
         if (response && response.ok) {
             closeModal('addRentalModal');
             loadRentals();
@@ -767,15 +649,9 @@ async function addRental() {
 }
 
 async function completeRental(rentalId) {
-    if (!confirm('Complete this rental?')) {
-        return;
-    }
-
+    if (!confirm('Complete this rental?')) return;
     try {
-        const response = await apiCall(`/api/rentals/${rentalId}/complete`, {
-            method: 'POST'
-        });
-
+        const response = await apiCall(`/api/rentals/${rentalId}/complete`, { method: 'POST' });
         if (response && response.ok) {
             alert('Rental completed successfully');
             loadRentals();
@@ -791,11 +667,9 @@ async function completeRental(rentalId) {
 async function loadRentalCalendar() {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth() + 1;
-    
     try {
         const response = await apiCall(`/api/rentals/calendar/${year}/${month}`);
         if (!response) return;
-
         const calendarRentals = await response.json();
         displayCalendar(year, month, calendarRentals);
     } catch (error) {
@@ -804,49 +678,32 @@ async function loadRentalCalendar() {
 }
 
 function displayCalendar(year, month, rentals) {
-    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'];
-    
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     document.getElementById('calendarTitle').textContent = `${monthNames[month - 1]} ${year}`;
-    
     const firstDay = new Date(year, month - 1, 1);
-    const lastDay = new Date(year, month, 0);
     const startDate = new Date(firstDay);
     startDate.setDate(startDate.getDate() - firstDay.getDay());
-    
     let calendarHTML = '';
-    
     const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     dayHeaders.forEach(day => {
         calendarHTML += `<div class="calendar-header">${day}</div>`;
     });
-    
     for (let i = 0; i < 42; i++) {
         const currentDay = new Date(startDate);
         currentDay.setDate(startDate.getDate() + i);
-        
         const isCurrentMonth = currentDay.getMonth() === month - 1;
         const dayClass = isCurrentMonth ? 'calendar-day' : 'calendar-day other-month';
-        
         const dayRentals = rentals.filter(rental => {
             const rentalStart = new Date(rental.start_date);
             const rentalEnd = new Date(rental.end_date);
             return currentDay >= rentalStart && currentDay <= rentalEnd;
         });
-        
         let rentalIndicator = '';
         if (dayRentals.length > 0) {
             rentalIndicator = `<div class="rental-indicator" title="${dayRentals.map(r => r.brand + ' ' + r.model).join(', ')}"></div>`;
         }
-        
-        calendarHTML += `
-            <div class="${dayClass}">
-                ${currentDay.getDate()}
-                ${rentalIndicator}
-            </div>
-        `;
+        calendarHTML += `<div class="${dayClass}">${currentDay.getDate()}${rentalIndicator}</div>`;
     }
-    
     document.getElementById('calendar').innerHTML = calendarHTML;
 }
 
@@ -855,57 +712,34 @@ function changeMonth(direction) {
     loadRentalCalendar();
 }
 
-// ==================== WAREHOUSE FUNCTIONS ====================
+// ==================== WAREHOUSE ====================
 
 async function loadWarehouse() {
-    // Show warehouse tabs
-    document.getElementById('warehouseTabs').style.display = 'flex';
-    
-    // Load based on current tab
-    if (currentWarehouseTab === 'stock') {
-        showWarehouseTab('stock');
-    } else {
-        showWarehouseTab('analytics');
-    }
+    await loadCategories();
+    warehouseTab = 'stock';
+    showWarehouseTab('stock');
 }
 
-// NEW: Warehouse tab navigation
-function showWarehouseTab(tabName) {
-    currentWarehouseTab = tabName;
+function showWarehouseTab(tab) {
+    warehouseTab = tab;
+    const tabs = document.querySelectorAll('.warehouse-tab');
+    tabs.forEach(t => t.classList.remove('active'));
+    document.querySelector(`.warehouse-tab[onclick*="${tab}"]`).classList.add('active');
     
-    // Update tab buttons
-    const tabButtons = document.querySelectorAll('#warehouseTabs .tab');
-    tabButtons.forEach(btn => btn.classList.remove('active'));
-    
-    // Update tab content
-    const tabContents = document.querySelectorAll('.warehouse-tab-content');
-    tabContents.forEach(content => content.classList.remove('active'));
-    
-    if (tabName === 'stock') {
-        tabButtons[0].classList.add('active');
-        document.getElementById('warehouseStockTab').classList.add('active');
-        document.getElementById('warehouseActionBar').style.display = 'flex';
+    if (tab === 'stock') {
         loadCategories();
-    } else if (tabName === 'analytics') {
-        tabButtons[1].classList.add('active');
-        document.getElementById('warehouseAnalyticsTab').classList.add('active');
-        document.getElementById('warehouseActionBar').style.display = 'none';
-        setDefaultAnalyticsDates();
-        loadWarehouseAnalytics();
+    } else if (tab === 'receive') {
+        showReceiveView();
+    } else if (tab === 'procurement') {
+        showProcurementView();
     }
-}
-
-function hideWarehouseActionBar() {
-    document.getElementById('warehouseActionBar').style.display = 'none';
 }
 
 async function loadCategories() {
     try {
         const response = await apiCall('/api/warehouse/categories');
         if (!response) return;
-
         categories = await response.json();
-        
         let html = '';
         if (categories.length === 0) {
             html = `
@@ -923,7 +757,6 @@ async function loadCategories() {
                 </div>
             `).join('');
         }
-        
         document.getElementById('warehouseContent').innerHTML = `
             <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
                 <h3>Категории</h3>
@@ -931,8 +764,6 @@ async function loadCategories() {
             </div>
             <div class="categories-grid">${html}</div>
         `;
-        
-        // Reset navigation
         currentCategoryId = null;
         currentSubcategoryId = null;
         currentProductId = null;
@@ -945,14 +776,11 @@ async function loadSubcategories(categoryId) {
     currentCategoryId = categoryId;
     currentSubcategoryId = null;
     currentProductId = null;
-    
     try {
         const response = await apiCall(`/api/warehouse/subcategories/${categoryId}`);
         if (!response) return;
-
         subcategories = await response.json();
         const category = categories.find(c => c.id === categoryId);
-        
         let html = '';
         if (subcategories.length === 0) {
             html = `
@@ -970,7 +798,6 @@ async function loadSubcategories(categoryId) {
                 </div>
             `).join('');
         }
-        
         document.getElementById('warehouseContent').innerHTML = `
             <div style="margin-bottom: 20px;">
                 <button class="btn" onclick="loadCategories()">← Назад к категориям</button>
@@ -989,15 +816,12 @@ async function loadSubcategories(categoryId) {
 async function loadProducts(subcategoryId) {
     currentSubcategoryId = subcategoryId;
     currentProductId = null;
-    
     try {
         const response = await apiCall(`/api/warehouse/products/${subcategoryId}`);
         if (!response) return;
-
         products = await response.json();
         const subcategory = subcategories.find(s => s.id === subcategoryId);
         const category = categories.find(c => c.id === currentCategoryId);
-        
         let html = '';
         if (products.length === 0) {
             html = `
@@ -1014,8 +838,9 @@ async function loadProducts(subcategoryId) {
                             <th>Название</th>
                             <th>SKU</th>
                             <th>Остаток</th>
+                            <th>Цена закупа</th>
+                            <th>Цена продажи</th>
                             <th>Мин. уровень</th>
-                            <th>Дата первого поступления</th>
                             <th>Действия</th>
                         </tr>
                     </thead>
@@ -1027,8 +852,9 @@ async function loadProducts(subcategoryId) {
                                 <td style="font-weight: bold; color: ${p.total_quantity > p.min_stock_level ? '#4CAF50' : '#f44336'}">
                                     ${p.total_quantity || 0}
                                 </td>
+                                <td>${p.purchase_price ? getCurrencySymbol(p.currency || 'GEL') + p.purchase_price : 'N/A'}</td>
+                                <td>${p.sale_price ? getCurrencySymbol(p.currency || 'GEL') + p.sale_price : 'N/A'}</td>
                                 <td>${p.min_stock_level}</td>
-                                <td>${p.first_received ? new Date(p.first_received).toLocaleDateString() : 'N/A'}</td>
                                 <td>
                                     <button class="btn" onclick="showProductDetails(${p.id})">Детали</button>
                                 </td>
@@ -1038,7 +864,6 @@ async function loadProducts(subcategoryId) {
                 </table>
             `;
         }
-        
         document.getElementById('warehouseContent').innerHTML = `
             <div style="margin-bottom: 20px;">
                 <button class="btn" onclick="loadSubcategories(${currentCategoryId})">← Назад к ${category.name}</button>
@@ -1056,15 +881,17 @@ async function loadProducts(subcategoryId) {
 
 async function showProductDetails(productId) {
     currentProductId = productId;
-    
     try {
-        // Load inventory for this product
         const response = await apiCall(`/api/warehouse/inventory/${productId}`);
         if (!response) return;
-
         inventory = await response.json();
         const product = products.find(p => p.id === productId);
-        
+        document.getElementById('productDetailsName').textContent = product.name;
+        document.getElementById('productDetailsSKU').textContent = product.sku || 'N/A';
+        document.getElementById('productDetailsTotal').textContent = product.total_quantity || 0;
+        document.getElementById('editPurchasePrice').value = product.purchase_price || '';
+        document.getElementById('editSalePrice').value = product.sale_price || '';
+        document.getElementById('editCurrency').value = product.currency || 'GEL';
         let inventoryHTML = '';
         if (inventory.length === 0) {
             inventoryHTML = '<tr><td colspan="6">Нет остатков на складе</td></tr>';
@@ -1080,41 +907,252 @@ async function showProductDetails(productId) {
                 </tr>
             `).join('');
         }
-        
-        document.getElementById('productDetailsName').textContent = product.name;
-        document.getElementById('productDetailsSKU').textContent = product.sku || 'N/A';
-        document.getElementById('productDetailsTotal').textContent = product.total_quantity || 0;
-        
-        // Add edit button and prices
-        const priceInfo = `
-            <div style="margin-top: 20px; padding: 15px; background: #3d3d3d; border-radius: 8px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <p><strong>Цена закупки:</strong> $${(product.purchase_price || 0).toFixed(2)}</p>
-                        <p><strong>Цена продажи:</strong> $${(product.sale_price || 0).toFixed(2)}</p>
-                    </div>
-                    <button class="btn" onclick="showEditProductModal(${productId})">✏️ Редактировать</button>
-                </div>
-            </div>
-        `;
-        
-        document.querySelector('#productInventoryTable').insertAdjacentHTML('beforebegin', priceInfo);
-        
         document.querySelector('#productInventoryTable tbody').innerHTML = inventoryHTML;
-        
         document.getElementById('productDetailsModal').style.display = 'block';
     } catch (error) {
         console.error('Show product details error:', error);
     }
 }
 
-// Warehouse action bar functions
-function showWarehouseAction(action) {
-    switch(action) {
-        case 'sell':
-            showSellInventoryModal();
-            break;
+async function updateProductPrices() {
+    const data = {
+        purchase_price: parseFloat(document.getElementById('editPurchasePrice').value),
+        sale_price: parseFloat(document.getElementById('editSalePrice').value),
+        currency: document.getElementById('editCurrency').value
+    };
+    try {
+        const response = await apiCall(`/api/warehouse/products/${currentProductId}/prices`, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+        if (response && response.ok) {
+            alert('Цены успешно обновлены!');
+            closeModal('productDetailsModal');
+            if (currentSubcategoryId) {
+                loadProducts(currentSubcategoryId);
+            }
+        } else {
+            alert('Ошибка обновления цен');
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
     }
+}
+
+function showReceiveView() {
+    receiveItems = [];
+    document.getElementById('warehouseContent').innerHTML = `
+        <div style="background: #2d2d2d; padding: 20px; border-radius: 12px;">
+            <h3 style="margin-bottom: 20px;">Оприходование товаров</h3>
+            
+            <div style="margin-bottom: 20px;">
+                <button class="btn" onclick="showProductSearchModal()">+ Добавить товар</button>
+            </div>
+            
+            <div id="receiveItemsList"></div>
+            
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #555;">
+                <button class="btn" onclick="saveReceiveItems()" style="width: 200px;">Сохранить оприходование</button>
+            </div>
+        </div>
+    `;
+    updateReceiveList();
+}
+
+function showProductSearchModal() {
+    document.getElementById('productSearchModal').style.display = 'block';
+    loadSearchCategories();
+}
+
+async function loadSearchCategories() {
+    try {
+        const response = await apiCall('/api/warehouse/categories');
+        if (!response) return;
+        const cats = await response.json();
+        let html = cats.map(cat => `
+            <div class="category-card" onclick="loadSearchSubcategories(${cat.id})">
+                <div class="category-icon">${cat.icon || '📦'}</div>
+                <div class="category-name">${cat.name}</div>
+            </div>
+        `).join('');
+        document.getElementById('productSearchContent').innerHTML = `
+            <div class="categories-grid">${html}</div>
+        `;
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+async function loadSearchSubcategories(catId) {
+    try {
+        const response = await apiCall(`/api/warehouse/subcategories/${catId}`);
+        if (!response) return;
+        const subs = await response.json();
+        let html = `<button class="btn" onclick="loadSearchCategories()" style="margin-bottom: 15px;">← Назад</button>`;
+        html += subs.map(sub => `
+            <div class="category-card" onclick="loadSearchProducts(${sub.id})">
+                <div class="category-icon">📋</div>
+                <div class="category-name">${sub.name}</div>
+            </div>
+        `).join('');
+        document.getElementById('productSearchContent').innerHTML = `
+            <div>${html}</div>
+        `;
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+async function loadSearchProducts(subId) {
+    try {
+        const response = await apiCall(`/api/warehouse/products/${subId}`);
+        if (!response) return;
+        const prods = await response.json();
+        let html = `<button class="btn" onclick="loadSearchCategories()" style="margin-bottom: 15px;">← Назад</button>`;
+        html += '<div class="pos-items-list">';
+        html += prods.map(p => `
+            <div class="pos-item" onclick='addToReceiveList(${JSON.stringify(p)})'>
+                <div class="pos-item-info">
+                    <div class="pos-item-name">${p.name}</div>
+                    <div class="pos-item-stock">SKU: ${p.sku || 'N/A'} | Остаток: ${p.total_quantity || 0}</div>
+                </div>
+                <div class="pos-item-price">Добавить</div>
+            </div>
+        `).join('');
+        html += '</div>';
+        document.getElementById('productSearchContent').innerHTML = html;
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+function searchProductsInModal() {
+    const query = document.getElementById('productSearchInput').value.toLowerCase();
+    if (query.length < 2) {
+        loadSearchCategories();
+        return;
+    }
+    // Simple search implementation - you can enhance this
+    alert('Поиск: ' + query);
+}
+
+function addToReceiveList(product) {
+    const existing = receiveItems.find(item => item.id === product.id);
+    if (existing) {
+        alert('Товар уже добавлен в список');
+        return;
+    }
+    receiveItems.push({
+        id: product.id,
+        name: product.name,
+        quantity: 1,
+        purchase_price: product.purchase_price || 0,
+        sale_price: product.sale_price || 0,
+        currency: product.currency || 'GEL'
+    });
+    updateReceiveList();
+    closeModal('productSearchModal');
+}
+
+function updateReceiveList() {
+    const container = document.getElementById('receiveItemsList');
+    if (receiveItems.length === 0) {
+        container.innerHTML = '<div class="loading">Нет товаров. Добавьте товары для оприходования.</div>';
+        return;
+    }
+    let html = '<div style="background: #3d3d3d; padding: 15px; border-radius: 8px;">';
+    receiveItems.forEach((item, index) => {
+        html += `
+            <div style="padding: 15px; background: #2d2d2d; border-radius: 8px; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <strong>${item.name}</strong>
+                    <button class="btn btn-danger" onclick="removeFromReceiveList(${index})">Удалить</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px;">
+                    <div class="form-group">
+                        <label>Количество</label>
+                        <input type="number" value="${item.quantity}" min="1" 
+                               onchange="updateReceiveItem(${index}, 'quantity', this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label>Цена закупа</label>
+                        <input type="number" value="${item.purchase_price}" step="0.01" 
+                               onchange="updateReceiveItem(${index}, 'purchase_price', this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label>Цена продажи</label>
+                        <input type="number" value="${item.sale_price}" step="0.01" 
+                               onchange="updateReceiveItem(${index}, 'sale_price', this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label>Валюта</label>
+                        <select onchange="updateReceiveItem(${index}, 'currency', this.value)">
+                            <option value="USD" ${item.currency === 'USD' ? 'selected' : ''}>USD</option>
+                            <option value="EUR" ${item.currency === 'EUR' ? 'selected' : ''}>EUR</option>
+                            <option value="GEL" ${item.currency === 'GEL' ? 'selected' : ''}>GEL</option>
+                            <option value="RUB" ${item.currency === 'RUB' ? 'selected' : ''}>RUB</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function updateReceiveItem(index, field, value) {
+    if (field === 'quantity') {
+        receiveItems[index][field] = parseInt(value);
+    } else if (field === 'purchase_price' || field === 'sale_price') {
+        receiveItems[index][field] = parseFloat(value);
+    } else {
+        receiveItems[index][field] = value;
+    }
+}
+
+function removeFromReceiveList(index) {
+    receiveItems.splice(index, 1);
+    updateReceiveList();
+}
+
+async function saveReceiveItems() {
+    if (receiveItems.length === 0) {
+        alert('Добавьте хотя бы один товар');
+        return;
+    }
+    try {
+        for (const item of receiveItems) {
+            const data = {
+                product_id: item.id,
+                source_type: 'purchased',
+                quantity: item.quantity,
+                purchase_price: item.purchase_price,
+                sale_price: item.sale_price,
+                currency: item.currency
+            };
+            const response = await apiCall('/api/warehouse/inventory/receive', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+            if (!response || !response.ok) {
+                throw new Error('Failed to receive inventory');
+            }
+        }
+        alert('Товары успешно оприходованы!');
+        showReceiveView();
+    } catch (error) {
+        alert('Ошибка: ' + error.message);
+    }
+}
+
+function showProcurementView() {
+    document.getElementById('warehouseContent').innerHTML = `
+        <div style="background: #2d2d2d; padding: 40px; border-radius: 12px; text-align: center;">
+            <h3 style="color: #ff9800; margin-bottom: 20px;">🚧 Раздел в разработке</h3>
+            <p style="color: #ccc; font-size: 16px;">Функционал "Закупки" находится в разработке.<br>Скоро будет доступен!</p>
+        </div>
+    `;
 }
 
 function showAddCategoryModal() {
@@ -1127,18 +1165,15 @@ async function addCategory() {
         description: document.getElementById('categoryDescription').value,
         icon: document.getElementById('categoryIcon').value || '📦'
     };
-    
     if (!data.name) {
         alert('Название обязательно');
         return;
     }
-    
     try {
         const response = await apiCall('/api/warehouse/categories', {
             method: 'POST',
             body: JSON.stringify(data)
         });
-        
         if (response && response.ok) {
             closeModal('addCategoryModal');
             document.getElementById('categoryName').value = '';
@@ -1163,18 +1198,15 @@ async function addSubcategory() {
         name: document.getElementById('subcategoryName').value,
         description: document.getElementById('subcategoryDescription').value
     };
-    
     if (!data.name) {
         alert('Название обязательно');
         return;
     }
-    
     try {
         const response = await apiCall('/api/warehouse/subcategories', {
             method: 'POST',
             body: JSON.stringify(data)
         });
-        
         if (response && response.ok) {
             closeModal('addSubcategoryModal');
             document.getElementById('subcategoryName').value = '';
@@ -1200,18 +1232,15 @@ async function addProduct() {
         sku: document.getElementById('productSKU').value,
         min_stock_level: parseInt(document.getElementById('productMinStock').value) || 0
     };
-    
     if (!data.name) {
         alert('Название обязательно');
         return;
     }
-    
     try {
         const response = await apiCall('/api/warehouse/products', {
             method: 'POST',
             body: JSON.stringify(data)
         });
-        
         if (response && response.ok) {
             closeModal('addProductModal');
             document.getElementById('productName').value = '';
@@ -1227,310 +1256,319 @@ async function addProduct() {
     }
 }
 
-function showReceiveInventoryModal() {
-    document.getElementById('receiveInventoryModal').style.display = 'block';
-}
+// ==================== POS ====================
 
-function showSellInventoryModal() {
-    document.getElementById('sellInventoryModal').style.display = 'block';
-}
-
-function showProcurementModal() {
-    document.getElementById('procurementModal').style.display = 'block';
-}
-
-// ==================== NEW: WAREHOUSE ANALYTICS ====================
-
-// Analytics sorting state
-let analyticsSortColumn = null;
-let analyticsSortDirection = 'desc'; // 'asc' or 'desc'
-let currentAnalyticsData = null; // Store current data for sorting
-
-// Reset analytics filters to default
-function resetAnalyticsFilters() {
-    setDefaultAnalyticsDates();
-    document.getElementById('analyticsSalesCompare').value = '';
-    document.getElementById('analyticsSalesValue').value = '';
-    document.getElementById('analyticsRevenueCompare').value = '';
-    document.getElementById('analyticsRevenueValue').value = '';
-    document.getElementById('analyticsProfitCompare').value = '';
-    document.getElementById('analyticsProfitValue').value = '';
-    document.getElementById('analyticsMarginCompare').value = '';
-    document.getElementById('analyticsMarginValue').value = '';
-    analyticsSortColumn = null;
-    analyticsSortDirection = 'desc';
-    loadWarehouseAnalytics();
-}
-
-// Load warehouse analytics with filters
-async function loadWarehouseAnalytics() {
+async function loadPOS() {
     try {
-        // Build query parameters
-        const params = new URLSearchParams();
-        
-        const startDate = document.getElementById('analyticsStartDateFilter').value;
-        const endDate = document.getElementById('analyticsEndDateFilter').value;
-        
-        if (startDate) params.append('start_date', startDate);
-        if (endDate) params.append('end_date', endDate);
-        
-        // Sales filter
-        const salesCompare = document.getElementById('analyticsSalesCompare').value;
-        const salesValue = document.getElementById('analyticsSalesValue').value;
-        if (salesCompare && salesValue) {
-            params.append('sales_compare', salesCompare);
-            params.append('sales_value', salesValue);
-        }
-        
-        // Revenue filter
-        const revenueCompare = document.getElementById('analyticsRevenueCompare').value;
-        const revenueValue = document.getElementById('analyticsRevenueValue').value;
-        if (revenueCompare && revenueValue) {
-            params.append('revenue_compare', revenueCompare);
-            params.append('revenue_value', revenueValue);
-        }
-        
-        // Profit filter
-        const profitCompare = document.getElementById('analyticsProfitCompare').value;
-        const profitValue = document.getElementById('analyticsProfitValue').value;
-        if (profitCompare && profitValue) {
-            params.append('profit_compare', profitCompare);
-            params.append('profit_value', profitValue);
-        }
-        
-        // Margin filter
-        const marginCompare = document.getElementById('analyticsMarginCompare').value;
-        const marginValue = document.getElementById('analyticsMarginValue').value;
-        if (marginCompare && marginValue) {
-            params.append('margin_compare', marginCompare);
-            params.append('margin_value', marginValue);
-        }
-        
-        const response = await apiCall(`/api/warehouse/analytics-detailed?${params.toString()}`);
+        const response = await apiCall('/api/warehouse/categories');
         if (!response) return;
-        
-        const data = await response.json();
-        
-        // Store data for sorting
-        currentAnalyticsData = data;
-        
-        // Display period
-        const periodStart = new Date(data.period.start).toLocaleDateString();
-        const periodEnd = new Date(data.period.end).toLocaleDateString();
-        document.getElementById('analyticsPeriodDisplay').textContent = `${periodStart} - ${periodEnd}`;
-        
-        // Display summary cards
-        displayAnalyticsSummary(data.totals);
-        
-        // Apply sorting if set
-        if (analyticsSortColumn && data.items.length > 0) {
-            data.items = sortAnalyticsData(data.items, analyticsSortColumn, analyticsSortDirection);
-        }
-        
-        // Display analytics table
-        displayAnalyticsTable(data.items, data.totals);
-        
+        posCategories = await response.json();
+        posCart = [];
+        posCurrentCategoryId = null;
+        posCurrentSubcategoryId = null;
+        displayPOSCategories();
+        updatePOSReceipt();
     } catch (error) {
-        console.error('Analytics load error:', error);
-        document.getElementById('analyticsTableBody').innerHTML = '<tr><td colspan="8">Error loading analytics</td></tr>';
+        console.error('POS load error:', error);
     }
 }
 
-// Display summary cards
-function displayAnalyticsSummary(totals) {
-    let summaryHTML = '';
-    
-    if (!totals || totals.length === 0) {
-        summaryHTML = '<div class="profit-card"><div class="currency-label">Нет данных за период</div></div>';
+function displayPOSCategories() {
+    let breadcrumb = '<div class="pos-breadcrumb-item" onclick="displayPOSCategories()">🏠 Главная</div>';
+    let html = '';
+    if (posCategories.length === 0) {
+        html = '<div class="loading">Нет категорий. Создайте категории в разделе "Склад"</div>';
     } else {
-        totals.forEach(total => {
-            summaryHTML += `
-                <div class="profit-card">
-                    <div class="currency-label">${total.currency} Всего продано</div>
-                    <div class="amount">${total.total_sold} шт</div>
+        html = posCategories.map(cat => `
+            <div class="pos-item" onclick="displayPOSSubcategories(${cat.id})">
+                <div class="pos-item-info">
+                    <div class="pos-item-name">${cat.icon || '📦'} ${cat.name}</div>
+                    <div class="pos-item-stock">${cat.description || ''}</div>
                 </div>
-                <div class="profit-card">
-                    <div class="currency-label">${total.currency} Выручка</div>
-                    <div class="amount positive">${getCurrencySymbol(total.currency)}${parseFloat(total.total_revenue).toFixed(2)}</div>
+                <div style="font-size: 24px;">›</div>
+            </div>
+        `).join('');
+    }
+    document.getElementById('posBreadcrumb').innerHTML = breadcrumb;
+    document.getElementById('posItemsList').innerHTML = html;
+}
+
+async function displayPOSSubcategories(categoryId) {
+    posCurrentCategoryId = categoryId;
+    try {
+        const response = await apiCall(`/api/warehouse/subcategories/${categoryId}`);
+        if (!response) return;
+        posSubcategories = await response.json();
+        const category = posCategories.find(c => c.id === categoryId);
+        let breadcrumb = `
+            <div class="pos-breadcrumb-item" onclick="displayPOSCategories()">🏠 Главная</div>
+            <div class="pos-breadcrumb-item">${category.name}</div>
+        `;
+        let html = '';
+        if (posSubcategories.length === 0) {
+            html = '<div class="loading">Нет подкатегорий</div>';
+        } else {
+            html = posSubcategories.map(sub => `
+                <div class="pos-item" onclick="displayPOSProducts(${sub.id})">
+                    <div class="pos-item-info">
+                        <div class="pos-item-name">📋 ${sub.name}</div>
+                        <div class="pos-item-stock">${sub.description || ''}</div>
+                    </div>
+                    <div style="font-size: 24px;">›</div>
                 </div>
-                <div class="profit-card">
-                    <div class="currency-label">${total.currency} Себестоимость</div>
-                    <div class="amount">${getCurrencySymbol(total.currency)}${parseFloat(total.total_cost).toFixed(2)}</div>
+            `).join('');
+        }
+        document.getElementById('posBreadcrumb').innerHTML = breadcrumb;
+        document.getElementById('posItemsList').innerHTML = html;
+    } catch (error) {
+        console.error('POS subcategories error:', error);
+    }
+}
+
+async function displayPOSProducts(subcategoryId) {
+    posCurrentSubcategoryId = subcategoryId;
+    try {
+        const response = await apiCall(`/api/warehouse/products/${subcategoryId}`);
+        if (!response) return;
+        posProducts = await response.json();
+        const subcategory = posSubcategories.find(s => s.id === subcategoryId);
+        const category = posCategories.find(c => c.id === posCurrentCategoryId);
+        let breadcrumb = `
+            <div class="pos-breadcrumb-item" onclick="displayPOSCategories()">🏠 Главная</div>
+            <div class="pos-breadcrumb-item" onclick="displayPOSSubcategories(${posCurrentCategoryId})">${category.name}</div>
+            <div class="pos-breadcrumb-item">${subcategory.name}</div>
+        `;
+        let html = '';
+        if (posProducts.length === 0) {
+            html = '<div class="loading">Нет товаров</div>';
+        } else {
+            html = posProducts.map(product => {
+                const stockClass = product.total_quantity <= 0 ? 'out' : 
+                                  product.total_quantity <= product.min_stock_level ? 'low' : '';
+                const price = product.sale_price || 0;
+                return `
+                    <div class="pos-item" onclick='addToCart(${JSON.stringify(product)})' ${product.total_quantity <= 0 ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+                        <div class="pos-item-info">
+                            <div class="pos-item-name">${product.name}</div>
+                            <div class="pos-item-stock ${stockClass}">
+                                На складе: ${product.total_quantity || 0} шт | Цена: ${getCurrencySymbol(product.currency || 'GEL')}${price}
+                            </div>
+                        </div>
+                        <div class="pos-item-price">Добавить</div>
+                    </div>
+                `;
+            }).join('');
+        }
+        document.getElementById('posBreadcrumb').innerHTML = breadcrumb;
+        document.getElementById('posItemsList').innerHTML = html;
+    } catch (error) {
+        console.error('POS products error:', error);
+    }
+}
+
+function addToCart(product) {
+    if (product.total_quantity <= 0) {
+        alert('Товар отсутствует на складе');
+        return;
+    }
+    if (!product.sale_price || product.sale_price <= 0) {
+        alert('Не установлена цена продажи для этого товара');
+        return;
+    }
+    const existingItem = posCart.find(item => item.id === product.id);
+    if (existingItem) {
+        if (existingItem.quantity < product.total_quantity) {
+            existingItem.quantity++;
+        } else {
+            alert('Недостаточно товара на складе');
+            return;
+        }
+    } else {
+        posCart.push({
+            id: product.id,
+            name: product.name,
+            quantity: 1,
+            max_quantity: product.total_quantity,
+            sale_price: product.sale_price,
+            currency: product.currency || 'GEL'
+        });
+    }
+    updatePOSReceipt();
+}
+
+function removeFromCart(productId) {
+    posCart = posCart.filter(item => item.id !== productId);
+    updatePOSReceipt();
+}
+
+function updateQuantity(productId, delta) {
+    const item = posCart.find(i => i.id === productId);
+    if (!item) return;
+    const newQuantity = item.quantity + delta;
+    if (newQuantity <= 0) {
+        removeFromCart(productId);
+    } else if (newQuantity <= item.max_quantity) {
+        item.quantity = newQuantity;
+        updatePOSReceipt();
+    } else {
+        alert('Недостаточно товара на складе');
+    }
+}
+
+function updatePOSReceipt() {
+    const receiptItems = document.getElementById('posReceiptItems');
+    const subtotalElement = document.getElementById('posSubtotal');
+    const totalElement = document.getElementById('posTotal');
+    const completeBtn = document.getElementById('posCompleteBtn');
+    
+    if (posCart.length === 0) {
+        receiptItems.innerHTML = '<div class="pos-receipt-empty">Корзина пуста<br>Добавьте товары для продажи</div>';
+        subtotalElement.textContent = '0.00';
+        totalElement.textContent = '0.00';
+        completeBtn.disabled = true;
+        return;
+    }
+    let html = '';
+    let subtotal = 0;
+    posCart.forEach(item => {
+        const itemTotal = item.quantity * item.sale_price;
+        subtotal += itemTotal;
+        html += `
+            <div class="pos-receipt-item">
+                <div class="pos-receipt-item-header">
+                    <div class="pos-receipt-item-name">${item.name}</div>
+                    <button class="pos-receipt-item-remove" onclick="removeFromCart(${item.id})">×</button>
                 </div>
-                <div class="profit-card">
-                    <div class="currency-label">${total.currency} Прибыль</div>
-                    <div class="amount ${parseFloat(total.net_profit) >= 0 ? 'positive' : 'negative'}">
-                        ${getCurrencySymbol(total.currency)}${parseFloat(total.net_profit).toFixed(2)}
+                <div class="pos-receipt-item-controls">
+                    <div class="pos-quantity-control">
+                        <button class="pos-quantity-btn" onclick="updateQuantity(${item.id}, -1)">-</button>
+                        <span class="pos-quantity-value">${item.quantity}</span>
+                        <button class="pos-quantity-btn" onclick="updateQuantity(${item.id}, 1)">+</button>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 12px; color: #999;">${getCurrencySymbol(item.currency)}${item.sale_price} × ${item.quantity}</div>
+                        <div class="pos-receipt-item-total">${getCurrencySymbol(item.currency)}${itemTotal.toFixed(2)}</div>
                     </div>
                 </div>
-                <div class="profit-card">
-                    <div class="currency-label">${total.currency} Рентабельность</div>
-                    <div class="amount">${parseFloat(total.profit_margin_percent).toFixed(2)}%</div>
-                </div>
-            `;
-        });
-    }
-    
-    document.getElementById('analyticsSummaryCards').innerHTML = summaryHTML;
-}
-
-// Display analytics table with data
-function displayAnalyticsTable(items, totals) {
-    let tableHTML = '';
-    
-    if (!items || items.length === 0) {
-        tableHTML = '<tr><td colspan="8">Нет данных за выбранный период</td></tr>';
-    } else {
-        items.forEach(item => {
-            const profitMargin = parseFloat(item.profit_margin_percent || 0).toFixed(2);
-            const netProfit = parseFloat(item.net_profit || 0);
-            const profitClass = netProfit >= 0 ? 'positive' : 'negative';
-            
-            tableHTML += `
-                <tr>
-                    <td><strong>${item.product_name}</strong></td>
-                    <td>${item.category_name} > ${item.subcategory_name}</td>
-                    <td>${item.sku || 'N/A'}</td>
-                    <td style="text-align: center; font-weight: bold;">${item.total_sold}</td>
-                    <td>${getCurrencySymbol(item.currency)}${parseFloat(item.total_revenue || 0).toFixed(2)}</td>
-                    <td>${getCurrencySymbol(item.currency)}${parseFloat(item.total_cost || 0).toFixed(2)}</td>
-                    <td class="${profitClass}" style="font-weight: bold;">${getCurrencySymbol(item.currency)}${netProfit.toFixed(2)}</td>
-                    <td style="text-align: center;">${profitMargin}%</td>
-                </tr>
-            `;
-        });
-    }
-    
-    document.getElementById('analyticsTableBody').innerHTML = tableHTML;
-    
-    // Update table headers with sort indicators
-    updateSortIndicators();
-    
-    // Display footer with totals
-    let footerHTML = '';
-    if (totals && totals.length > 0) {
-        totals.forEach(total => {
-            footerHTML += `
-                <tr>
-                    <td colspan="3"><strong>ИТОГО (${total.currency})</strong></td>
-                    <td style="text-align: center;"><strong>${total.total_sold} шт</strong></td>
-                    <td><strong>${getCurrencySymbol(total.currency)}${parseFloat(total.total_revenue).toFixed(2)}</strong></td>
-                    <td><strong>${getCurrencySymbol(total.currency)}${parseFloat(total.total_cost).toFixed(2)}</strong></td>
-                    <td><strong>${getCurrencySymbol(total.currency)}${parseFloat(total.net_profit).toFixed(2)}</strong></td>
-                    <td style="text-align: center;"><strong>${parseFloat(total.profit_margin_percent).toFixed(2)}%</strong></td>
-                </tr>
-            `;
-        });
-    }
-    
-    document.getElementById('analyticsTableFooter').innerHTML = footerHTML;
-}
-
-// NEW: Sort analytics data
-function sortAnalyticsData(items, column, direction) {
-    const sortedItems = [...items];
-    
-    sortedItems.sort((a, b) => {
-        let aVal, bVal;
-        
-        switch(column) {
-            case 'name':
-                aVal = a.product_name.toLowerCase();
-                bVal = b.product_name.toLowerCase();
-                break;
-            case 'category':
-                aVal = (a.category_name + a.subcategory_name).toLowerCase();
-                bVal = (b.category_name + b.subcategory_name).toLowerCase();
-                break;
-            case 'sku':
-                aVal = (a.sku || '').toLowerCase();
-                bVal = (b.sku || '').toLowerCase();
-                break;
-            case 'sales':
-                aVal = parseFloat(a.total_sold || 0);
-                bVal = parseFloat(b.total_sold || 0);
-                break;
-            case 'revenue':
-                aVal = parseFloat(a.total_revenue || 0);
-                bVal = parseFloat(b.total_revenue || 0);
-                break;
-            case 'cost':
-                aVal = parseFloat(a.total_cost || 0);
-                bVal = parseFloat(b.total_cost || 0);
-                break;
-            case 'profit':
-                aVal = parseFloat(a.net_profit || 0);
-                bVal = parseFloat(b.net_profit || 0);
-                break;
-            case 'margin':
-                aVal = parseFloat(a.profit_margin_percent || 0);
-                bVal = parseFloat(b.profit_margin_percent || 0);
-                break;
-            default:
-                return 0;
-        }
-        
-        if (typeof aVal === 'string') {
-            return direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-        } else {
-            return direction === 'asc' ? aVal - bVal : bVal - aVal;
-        }
+            </div>
+        `;
     });
-    
-    return sortedItems;
+    receiptItems.innerHTML = html;
+    subtotalElement.textContent = subtotal.toFixed(2);
+    totalElement.textContent = subtotal.toFixed(2);
+    completeBtn.disabled = false;
 }
 
-// NEW: Handle column sort click
-function sortAnalyticsByColumn(column) {
-    if (!currentAnalyticsData || !currentAnalyticsData.items) return;
+function clearPOSCart() {
+    if (posCart.length === 0) return;
+    if (confirm('Очистить корзину?')) {
+        posCart = [];
+        updatePOSReceipt();
+    }
+}
+
+function completePOSSale() {
+    if (posCart.length === 0) {
+        alert('Корзина пуста');
+        return;
+    }
+    const subtotal = posCart.reduce((sum, item) => sum + (item.quantity * item.sale_price), 0);
+    document.getElementById('saleSubtotal').textContent = subtotal.toFixed(2);
+    document.getElementById('saleDiscount').textContent = '0.00';
+    document.getElementById('saleTotal').textContent = subtotal.toFixed(2);
+    document.getElementById('saleDiscountInput').value = '';
+    document.getElementById('completeSaleModal').style.display = 'block';
+}
+
+function applySaleDiscount() {
+    const subtotal = posCart.reduce((sum, item) => sum + (item.quantity * item.sale_price), 0);
+    const discountValue = parseFloat(document.getElementById('saleDiscountInput').value) || 0;
+    const discountType = document.querySelector('input[name="discountType"]:checked').value;
     
-    // Toggle direction if same column, otherwise default to desc
-    if (analyticsSortColumn === column) {
-        analyticsSortDirection = analyticsSortDirection === 'desc' ? 'asc' : 'desc';
+    let discount = 0;
+    if (discountType === 'amount') {
+        discount = Math.min(discountValue, subtotal);
     } else {
-        analyticsSortColumn = column;
-        analyticsSortDirection = 'desc';
+        discount = (subtotal * discountValue) / 100;
     }
     
-    // Sort and display
-    const sortedItems = sortAnalyticsData(currentAnalyticsData.items, analyticsSortColumn, analyticsSortDirection);
-    displayAnalyticsTable(sortedItems, currentAnalyticsData.totals);
+    const total = subtotal - discount;
+    document.getElementById('saleDiscount').textContent = discount.toFixed(2);
+    document.getElementById('saleTotal').textContent = total.toFixed(2);
 }
 
-// NEW: Update sort indicators in table headers
-function updateSortIndicators() {
-    // Remove all existing indicators
-    document.querySelectorAll('.analytics-table thead th').forEach(th => {
-        th.classList.remove('sorted-asc', 'sorted-desc');
-        const arrow = th.querySelector('.sort-arrow');
-        if (arrow) arrow.remove();
-    });
+async function confirmSale() {
+    const buyerName = document.getElementById('saleBuyerName').value || '';
+    const buyerPhone = document.getElementById('saleBuyerPhone').value || '';
+    const total = parseFloat(document.getElementById('saleTotal').textContent);
     
-    // Add indicator to current sorted column
-    if (analyticsSortColumn) {
-        const columnMap = {
-            'name': 0,
-            'category': 1,
-            'sku': 2,
-            'sales': 3,
-            'revenue': 4,
-            'cost': 5,
-            'profit': 6,
-            'margin': 7
-        };
-        
-        const columnIndex = columnMap[analyticsSortColumn];
-        if (columnIndex !== undefined) {
-            const th = document.querySelectorAll('.analytics-table thead th')[columnIndex];
-            if (th) {
-                th.classList.add(`sorted-${analyticsSortDirection}`);
-                const arrow = document.createElement('span');
-                arrow.className = 'sort-arrow';
-                arrow.textContent = analyticsSortDirection === 'desc' ? ' ▼' : ' ▲';
-                th.appendChild(arrow);
+    try {
+        for (const item of posCart) {
+            const data = {
+                product_id: item.id,
+                quantity: item.quantity,
+                sale_price: item.sale_price,
+                currency: item.currency,
+                buyer_name: buyerName,
+                buyer_phone: buyerPhone,
+                notes: 'POS Sale'
+            };
+            const response = await apiCall('/api/warehouse/sales', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+            if (!response || !response.ok) {
+                throw new Error('Failed to process sale');
             }
         }
+        alert('Продажа успешно оформлена! Итого: ' + getCurrencySymbol(posCart[0].currency) + total.toFixed(2));
+        closeModal('completeSaleModal');
+        posCart = [];
+        updatePOSReceipt();
+        if (posCurrentSubcategoryId) {
+            displayPOSProducts(posCurrentSubcategoryId);
+        }
+    } catch (error) {
+        alert('Ошибка оформления продажи: ' + error.message);
     }
+}
+
+function searchPOSProducts() {
+    const query = document.getElementById('posSearchInput').value.toLowerCase();
+    if (query.length < 2) {
+        if (posCurrentSubcategoryId) {
+            displayPOSProducts(posCurrentSubcategoryId);
+        } else {
+            displayPOSCategories();
+        }
+        return;
+    }
+    const filteredProducts = posProducts.filter(product => 
+        product.name.toLowerCase().includes(query) ||
+        (product.sku && product.sku.toLowerCase().includes(query))
+    );
+    let html = '';
+    if (filteredProducts.length === 0) {
+        html = '<div class="loading">Товары не найдены</div>';
+    } else {
+        html = filteredProducts.map(product => {
+            const stockClass = product.total_quantity <= 0 ? 'out' : 
+                              product.total_quantity <= product.min_stock_level ? 'low' : '';
+            const price = product.sale_price || 0;
+            return `
+                <div class="pos-item" onclick='addToCart(${JSON.stringify(product)})' ${product.total_quantity <= 0 ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+                    <div class="pos-item-info">
+                        <div class="pos-item-name">${product.name}</div>
+                        <div class="pos-item-stock ${stockClass}">
+                            На складе: ${product.total_quantity || 0} шт | Цена: ${getCurrencySymbol(product.currency || 'GEL')}${price}
+                        </div>
+                    </div>
+                    <div class="pos-item-price">Добавить</div>
+                </div>
+            `;
+        }).join('');
+    }
+    document.getElementById('posItemsList').innerHTML = html;
 }
 
 // Admin
@@ -1539,14 +1577,11 @@ async function loadUsers() {
         document.querySelector('#usersTable tbody').innerHTML = '<tr><td colspan="5">Access denied</td></tr>';
         return;
     }
-
     try {
         const response = await apiCall('/api/admin/users');
         if (!response) return;
-
         const users = await response.json();
         let usersHTML = '';
-        
         if (users.length === 0) {
             usersHTML = '<tr><td colspan="5">No users found</td></tr>';
         } else {
@@ -1554,21 +1589,17 @@ async function loadUsers() {
                 const statusClass = user.active ? 'status-active' : 'status-sold';
                 const statusText = user.active ? 'ACTIVE' : 'INACTIVE';
                 const actionText = user.active ? 'Deactivate' : 'Activate';
-                
                 usersHTML += `
                     <tr>
                         <td>${user.email}</td>
                         <td>${user.role}</td>
                         <td><span class="car-status ${statusClass}">${statusText}</span></td>
                         <td>${new Date(user.created_at).toLocaleDateString()}</td>
-                        <td>
-                            <button class="btn btn-danger" onclick="toggleUserStatus(${user.id})">${actionText}</button>
-                        </td>
+                        <td><button class="btn btn-danger" onclick="toggleUserStatus(${user.id})">${actionText}</button></td>
                     </tr>
                 `;
             });
         }
-        
         document.querySelector('#usersTable tbody').innerHTML = usersHTML;
     } catch (error) {
         console.error('Users load error:', error);
@@ -1577,15 +1608,9 @@ async function loadUsers() {
 }
 
 async function toggleUserStatus(userId) {
-    if (!confirm('Toggle user status?')) {
-        return;
-    }
-
+    if (!confirm('Toggle user status?')) return;
     try {
-        const response = await apiCall(`/api/admin/users/${userId}/toggle`, {
-            method: 'PUT'
-        });
-
+        const response = await apiCall(`/api/admin/users/${userId}/toggle`, { method: 'PUT' });
         if (response && response.ok) {
             loadUsers();
         } else {
@@ -1596,7 +1621,7 @@ async function toggleUserStatus(userId) {
     }
 }
 
-// Modal functions
+// Modals
 function closeModal(modalId) {
     document.getElementById(modalId).style.display = 'none';
 }
@@ -1610,693 +1635,21 @@ window.onclick = function(event) {
     });
 }
 
-// Handle Enter key
 document.addEventListener('keydown', function(event) {
     if (event.key === 'Enter') {
         const activeElement = document.activeElement;
-        
         if (activeElement.id === 'loginEmail' || activeElement.id === 'loginPassword') {
             attemptLogin();
         }
-        
         if (activeElement.id === 'registerEmail' || activeElement.id === 'registerPassword') {
             attemptRegister();
         }
     }
 });
 
-// Auto-refresh dashboard
 setInterval(() => {
     const dashboardSection = document.getElementById('dashboard');
     if (dashboardSection && dashboardSection.classList.contains('active')) {
         loadDashboard();
     }
 }, 30000);
-
-// ==================== POS (КАССА) FUNCTIONS ====================
-
-// Load POS section
-async function loadPOS() {
-    try {
-        const response = await apiCall('/api/warehouse/products-all');
-        if (!response) return;
-        
-        allProducts = await response.json();
-        loadPOSCategories();
-    } catch (error) {
-        console.error('Load POS error:', error);
-    }
-}
-
-// Load POS categories
-function loadPOSCategories() {
-    posCurrentCategory = null;
-    posCurrentSubcategory = null;
-    
-    // Get unique categories
-    const uniqueCategories = {};
-    allProducts.forEach(p => {
-        if (!uniqueCategories[p.category_id]) {
-            uniqueCategories[p.category_id] = {
-                id: p.category_id,
-                name: p.category_name,
-                icon: p.category_icon
-            };
-        }
-    });
-    
-    let html = '';
-    Object.values(uniqueCategories).forEach(cat => {
-        html += `
-            <div class="pos-item" onclick="loadPOSSubcategories(${cat.id}, '${cat.name}')">
-                <div class="pos-item-info">
-                    <div class="pos-item-name">${cat.icon || '📦'} ${cat.name}</div>
-                    <div class="pos-item-stock">Категория</div>
-                </div>
-                <div style="font-size: 24px;">›</div>
-            </div>
-        `;
-    });
-    
-    document.getElementById('posItemsList').innerHTML = html || '<p style="text-align:center; color:#ccc;">Нет категорий</p>';
-    document.getElementById('posBreadcrumb').innerHTML = '<div class="pos-breadcrumb-item" onclick="loadPOSCategories()">📦 Все категории</div>';
-}
-
-// Load POS subcategories
-function loadPOSSubcategories(categoryId, categoryName) {
-    posCurrentCategory = categoryId;
-    posCurrentSubcategory = null;
-    
-    const uniqueSubcategories = {};
-    allProducts.filter(p => p.category_id === categoryId).forEach(p => {
-        if (!uniqueSubcategories[p.subcategory_id]) {
-            uniqueSubcategories[p.subcategory_id] = {
-                id: p.subcategory_id,
-                name: p.subcategory_name
-            };
-        }
-    });
-    
-    let html = '';
-    Object.values(uniqueSubcategories).forEach(sub => {
-        html += `
-            <div class="pos-item" onclick="loadPOSProducts(${sub.id}, '${sub.name}')">
-                <div class="pos-item-info">
-                    <div class="pos-item-name">📋 ${sub.name}</div>
-                    <div class="pos-item-stock">Подкатегория</div>
-                </div>
-                <div style="font-size: 24px;">›</div>
-            </div>
-        `;
-    });
-    
-    document.getElementById('posItemsList').innerHTML = html;
-    document.getElementById('posBreadcrumb').innerHTML = `
-        <div class="pos-breadcrumb-item" onclick="loadPOSCategories()">📦 Все категории</div>
-        <div class="pos-breadcrumb-item">${categoryName}</div>
-    `;
-}
-
-// Load POS products
-function loadPOSProducts(subcategoryId, subcategoryName) {
-    posCurrentSubcategory = subcategoryId;
-    
-    const products = allProducts.filter(p => p.subcategory_id === subcategoryId);
-    
-    let html = '';
-    products.forEach(p => {
-        const stockClass = p.stock_quantity <= 0 ? 'out' : (p.stock_quantity < 5 ? 'low' : '');
-        const stockText = p.stock_quantity <= 0 ? 'Нет в наличии' : `В наличии: ${p.stock_quantity} шт`;
-        
-        html += `
-            <div class="pos-item" onclick="addToPOSReceipt(${p.id})" ${p.stock_quantity <= 0 ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
-                <div class="pos-item-info">
-                    <div class="pos-item-name">${p.name}</div>
-                    <div class="pos-item-stock ${stockClass}">${stockText}</div>
-                </div>
-                <div class="pos-item-price">$${(p.sale_price || 0).toFixed(2)}</div>
-            </div>
-        `;
-    });
-    
-    document.getElementById('posItemsList').innerHTML = html || '<p style="text-align:center; color:#ccc;">Нет товаров</p>';
-    
-    const categoryName = allProducts.find(p => p.subcategory_id === subcategoryId)?.category_name || '';
-    document.getElementById('posBreadcrumb').innerHTML = `
-        <div class="pos-breadcrumb-item" onclick="loadPOSCategories()">📦 Все категории</div>
-        <div class="pos-breadcrumb-item" onclick="loadPOSSubcategories(${posCurrentCategory}, '${categoryName}')">${categoryName}</div>
-        <div class="pos-breadcrumb-item">${subcategoryName}</div>
-    `;
-}
-
-// Search POS products
-function searchPOSProducts() {
-    const query = document.getElementById('posSearchInput').value.toLowerCase();
-    
-    if (!query) {
-        loadPOSCategories();
-        return;
-    }
-    
-    const filtered = allProducts.filter(p => 
-        p.name.toLowerCase().includes(query) || 
-        (p.sku && p.sku.toLowerCase().includes(query))
-    );
-    
-    let html = '';
-    filtered.forEach(p => {
-        const stockClass = p.stock_quantity <= 0 ? 'out' : (p.stock_quantity < 5 ? 'low' : '');
-        const stockText = p.stock_quantity <= 0 ? 'Нет в наличии' : `В наличии: ${p.stock_quantity} шт`;
-        
-        html += `
-            <div class="pos-item" onclick="addToPOSReceipt(${p.id})" ${p.stock_quantity <= 0 ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
-                <div class="pos-item-info">
-                    <div class="pos-item-name">${p.name}</div>
-                    <div class="pos-item-stock ${stockClass}">${stockText} • ${p.category_name} › ${p.subcategory_name}</div>
-                </div>
-                <div class="pos-item-price">$${(p.sale_price || 0).toFixed(2)}</div>
-            </div>
-        `;
-    });
-    
-    document.getElementById('posItemsList').innerHTML = html || '<p style="text-align:center; color:#ccc;">Ничего не найдено</p>';
-    document.getElementById('posBreadcrumb').innerHTML = `
-        <div class="pos-breadcrumb-item" onclick="loadPOSCategories(); document.getElementById('posSearchInput').value=''">📦 Все категории</div>
-        <div class="pos-breadcrumb-item">🔍 Результаты поиска: "${query}"</div>
-    `;
-}
-
-// Add item to POS receipt
-function addToPOSReceipt(productId) {
-    const product = allProducts.find(p => p.id === productId);
-    
-    if (!product || product.stock_quantity <= 0) {
-        alert('Товар отсутствует на складе');
-        return;
-    }
-    
-    const existingItem = posReceipt.find(item => item.product_id === productId);
-    
-    if (existingItem) {
-        if (existingItem.quantity >= product.stock_quantity) {
-            alert(`Недостаточно товара на складе (доступно: ${product.stock_quantity})`);
-            return;
-        }
-        existingItem.quantity++;
-        existingItem.total_price = existingItem.quantity * existingItem.unit_price;
-    } else {
-        posReceipt.push({
-            product_id: productId,
-            name: product.name,
-            unit_price: product.sale_price || 0,
-            quantity: 1,
-            total_price: product.sale_price || 0,
-            max_quantity: product.stock_quantity
-        });
-    }
-    
-    updatePOSReceipt();
-}
-
-// Update POS receipt display
-function updatePOSReceipt() {
-    if (posReceipt.length === 0) {
-        document.getElementById('posReceiptItems').innerHTML = '<div class="pos-receipt-empty">Добавьте товары из каталога</div>';
-        document.getElementById('posTotals').style.display = 'none';
-        document.getElementById('posCompleteBtn').disabled = true;
-        return;
-    }
-    
-    let html = '';
-    posReceipt.forEach((item, index) => {
-        html += `
-            <div class="pos-receipt-item">
-                <div class="pos-receipt-item-header">
-                    <div class="pos-receipt-item-name">${item.name}</div>
-                    <button class="pos-receipt-item-remove" onclick="removeFromPOSReceipt(${index})">✕</button>
-                </div>
-                <div class="pos-receipt-item-controls">
-                    <div class="pos-quantity-control">
-                        <button class="pos-quantity-btn" onclick="changePOSQuantity(${index}, -1)">−</button>
-                        <div class="pos-quantity-value">${item.quantity}</div>
-                        <button class="pos-quantity-btn" onclick="changePOSQuantity(${index}, 1)">+</button>
-                    </div>
-                    <div class="pos-receipt-item-total">$${item.total_price.toFixed(2)}</div>
-                </div>
-            </div>
-        `;
-    });
-    
-    document.getElementById('posReceiptItems').innerHTML = html;
-    
-    const totalItems = posReceipt.reduce((sum, item) => sum + item.quantity, 0);
-    const totalAmount = posReceipt.reduce((sum, item) => sum + item.total_price, 0);
-    
-    document.getElementById('posTotalItems').textContent = `${totalItems} шт`;
-    document.getElementById('posTotalAmount').textContent = `$${totalAmount.toFixed(2)}`;
-    document.getElementById('posTotals').style.display = 'block';
-    document.getElementById('posCompleteBtn').disabled = false;
-}
-
-// Change quantity in POS receipt
-function changePOSQuantity(index, delta) {
-    const item = posReceipt[index];
-    const newQty = item.quantity + delta;
-    
-    if (newQty <= 0) {
-        removeFromPOSReceipt(index);
-        return;
-    }
-    
-    if (newQty > item.max_quantity) {
-        alert(`Недостаточно товара на складе (доступно: ${item.max_quantity})`);
-        return;
-    }
-    
-    item.quantity = newQty;
-    item.total_price = item.quantity * item.unit_price;
-    updatePOSReceipt();
-}
-
-// Remove item from POS receipt
-function removeFromPOSReceipt(index) {
-    posReceipt.splice(index, 1);
-    updatePOSReceipt();
-}
-
-// Clear POS receipt
-function clearPOSReceipt() {
-    if (posReceipt.length === 0) return;
-    
-    if (confirm('Очистить чек?')) {
-        posReceipt = [];
-        updatePOSReceipt();
-    }
-}
-
-// Show POS checkout modal
-function showPOSCheckout() {
-    if (posReceipt.length === 0) return;
-    
-    const totalAmount = posReceipt.reduce((sum, item) => sum + item.total_price, 0);
-    
-    let itemsHTML = '';
-    posReceipt.forEach(item => {
-        itemsHTML += `
-            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                <span>${item.name} × ${item.quantity}</span>
-                <span>$${item.total_price.toFixed(2)}</span>
-            </div>
-        `;
-    });
-    
-    document.getElementById('posCheckoutItemsList').innerHTML = itemsHTML;
-    document.getElementById('posCheckoutSubtotal').textContent = `$${totalAmount.toFixed(2)}`;
-    document.getElementById('posCheckoutFinal').textContent = `$${totalAmount.toFixed(2)}`;
-    
-    document.getElementById('posDiscountType').value = 'none';
-    document.getElementById('posDiscountValue').value = '';
-    document.getElementById('posDiscountValue').disabled = true;
-    
-    document.getElementById('posCheckoutModal').style.display = 'block';
-}
-
-// Calculate POS discount
-function calculatePOSDiscount() {
-    const totalAmount = posReceipt.reduce((sum, item) => sum + item.total_price, 0);
-    const discountType = document.getElementById('posDiscountType').value;
-    const discountValue = parseFloat(document.getElementById('posDiscountValue').value) || 0;
-    
-    document.getElementById('posDiscountValue').disabled = discountType === 'none';
-    
-    let finalAmount = totalAmount;
-    
-    if (discountType === 'percent') {
-        finalAmount = totalAmount * (1 - discountValue / 100);
-    } else if (discountType === 'amount') {
-        finalAmount = totalAmount - discountValue;
-    }
-    
-    finalAmount = Math.max(0, finalAmount);
-    
-    document.getElementById('posCheckoutFinal').textContent = `$${finalAmount.toFixed(2)}`;
-}
-
-// Complete POS sale
-async function completePOSSale() {
-    const totalAmount = posReceipt.reduce((sum, item) => sum + item.total_price, 0);
-    const discountType = document.getElementById('posDiscountType').value;
-    const discountValue = parseFloat(document.getElementById('posDiscountValue').value) || 0;
-    const finalAmount = parseFloat(document.getElementById('posCheckoutFinal').textContent.replace('$', ''));
-    
-    const saleData = {
-        items: posReceipt,
-        discount_type: discountType === 'none' ? null : discountType,
-        discount_value: discountType === 'none' ? 0 : discountValue,
-        total_amount: totalAmount,
-        final_amount: finalAmount
-    };
-    
-    try {
-        const response = await apiCall('/api/pos/sale', {
-            method: 'POST',
-            body: JSON.stringify(saleData)
-        });
-        
-        if (response && response.ok) {
-            const result = await response.json();
-            alert(`✅ Продажа #${result.sale_id} успешно завершена!\nСумма: $${finalAmount.toFixed(2)}`);
-            
-            posReceipt = [];
-            updatePOSReceipt();
-            closeModal('posCheckoutModal');
-            
-            // Reload products to update stock
-            loadPOS();
-        } else {
-            const error = await response.json();
-            alert('Ошибка: ' + (error.error || 'Не удалось завершить продажу'));
-        }
-    } catch (error) {
-        console.error('Complete sale error:', error);
-        alert('Ошибка при завершении продажи');
-    }
-}
-
-// ==================== RECEIVING (ОПРИХОДОВАНИЕ) FUNCTIONS ====================
-
-// Show receiving interface
-function showReceivingInterface() {
-    receivingItems = [];
-    document.getElementById('receivingModal').style.display = 'block';
-    document.getElementById('receivingItemsList').innerHTML = '<p style="color: #ccc; text-align: center; padding: 40px;">Нажмите "Добавить товар" для начала оприходования</p>';
-    document.getElementById('receivingSaveBtn').style.display = 'none';
-}
-
-// Show receiving search
-async function showReceivingSearch() {
-    try {
-        const response = await apiCall('/api/warehouse/products-all');
-        if (!response) return;
-        
-        allProducts = await response.json();
-        
-        document.getElementById('receivingSearchModal').style.display = 'block';
-        loadReceivingCategories();
-    } catch (error) {
-        console.error('Load products error:', error);
-    }
-}
-
-// Load receiving categories
-function loadReceivingCategories() {
-    receivingCurrentCategory = null;
-    receivingCurrentSubcategory = null;
-    
-    const uniqueCategories = {};
-    allProducts.forEach(p => {
-        if (!uniqueCategories[p.category_id]) {
-            uniqueCategories[p.category_id] = {
-                id: p.category_id,
-                name: p.category_name,
-                icon: p.category_icon
-            };
-        }
-    });
-    
-    let html = '';
-    Object.values(uniqueCategories).forEach(cat => {
-        html += `
-            <div class="pos-item" onclick="loadReceivingSubcategories(${cat.id}, '${cat.name}')">
-                <div class="pos-item-info">
-                    <div class="pos-item-name">${cat.icon || '📦'} ${cat.name}</div>
-                    <div class="pos-item-stock">Категория</div>
-                </div>
-                <div style="font-size: 24px;">›</div>
-            </div>
-        `;
-    });
-    
-    document.getElementById('receivingSearchList').innerHTML = html;
-    document.getElementById('receivingBreadcrumb').innerHTML = '<div class="pos-breadcrumb-item" onclick="loadReceivingCategories()">📦 Все категории</div>';
-}
-
-// Load receiving subcategories
-function loadReceivingSubcategories(categoryId, categoryName) {
-    receivingCurrentCategory = categoryId;
-    
-    const uniqueSubcategories = {};
-    allProducts.filter(p => p.category_id === categoryId).forEach(p => {
-        if (!uniqueSubcategories[p.subcategory_id]) {
-            uniqueSubcategories[p.subcategory_id] = {
-                id: p.subcategory_id,
-                name: p.subcategory_name
-            };
-        }
-    });
-    
-    let html = '';
-    Object.values(uniqueSubcategories).forEach(sub => {
-        html += `
-            <div class="pos-item" onclick="loadReceivingProducts(${sub.id}, '${sub.name}')">
-                <div class="pos-item-info">
-                    <div class="pos-item-name">📋 ${sub.name}</div>
-                    <div class="pos-item-stock">Подкатегория</div>
-                </div>
-                <div style="font-size: 24px;">›</div>
-            </div>
-        `;
-    });
-    
-    document.getElementById('receivingSearchList').innerHTML = html;
-    document.getElementById('receivingBreadcrumb').innerHTML = `
-        <div class="pos-breadcrumb-item" onclick="loadReceivingCategories()">📦 Все категории</div>
-        <div class="pos-breadcrumb-item">${categoryName}</div>
-    `;
-}
-
-// Load receiving products
-function loadReceivingProducts(subcategoryId, subcategoryName) {
-    const products = allProducts.filter(p => p.subcategory_id === subcategoryId);
-    
-    let html = '';
-    products.forEach(p => {
-        const alreadyAdded = receivingItems.find(item => item.product_id === p.id);
-        
-        html += `
-            <div class="pos-item" onclick="addToReceiving(${p.id})" ${alreadyAdded ? 'style="opacity: 0.5;"' : ''}>
-                <div class="pos-item-info">
-                    <div class="pos-item-name">${p.name} ${alreadyAdded ? '✓' : ''}</div>
-                    <div class="pos-item-stock">Текущий остаток: ${p.stock_quantity} шт</div>
-                </div>
-                <div style="font-size: 20px;">${alreadyAdded ? '✓' : '+'}</div>
-            </div>
-        `;
-    });
-    
-    document.getElementById('receivingSearchList').innerHTML = html;
-    
-    const categoryName = allProducts.find(p => p.subcategory_id === subcategoryId)?.category_name || '';
-    document.getElementById('receivingBreadcrumb').innerHTML = `
-        <div class="pos-breadcrumb-item" onclick="loadReceivingCategories()">📦 Все категории</div>
-        <div class="pos-breadcrumb-item" onclick="loadReceivingSubcategories(${receivingCurrentCategory}, '${categoryName}')">${categoryName}</div>
-        <div class="pos-breadcrumb-item">${subcategoryName}</div>
-    `;
-}
-
-// Search receiving products
-function searchReceivingProducts() {
-    const query = document.getElementById('receivingSearchInput').value.toLowerCase();
-    
-    if (!query) {
-        loadReceivingCategories();
-        return;
-    }
-    
-    const filtered = allProducts.filter(p => 
-        p.name.toLowerCase().includes(query) || 
-        (p.sku && p.sku.toLowerCase().includes(query))
-    );
-    
-    let html = '';
-    filtered.forEach(p => {
-        const alreadyAdded = receivingItems.find(item => item.product_id === p.id);
-        
-        html += `
-            <div class="pos-item" onclick="addToReceiving(${p.id})" ${alreadyAdded ? 'style="opacity: 0.5;"' : ''}>
-                <div class="pos-item-info">
-                    <div class="pos-item-name">${p.name} ${alreadyAdded ? '✓' : ''}</div>
-                    <div class="pos-item-stock">Остаток: ${p.stock_quantity} шт • ${p.category_name} › ${p.subcategory_name}</div>
-                </div>
-                <div style="font-size: 20px;">${alreadyAdded ? '✓' : '+'}</div>
-            </div>
-        `;
-    });
-    
-    document.getElementById('receivingSearchList').innerHTML = html;
-}
-
-// Add product to receiving list
-function addToReceiving(productId) {
-    const product = allProducts.find(p => p.id === productId);
-    const alreadyAdded = receivingItems.find(item => item.product_id === productId);
-    
-    if (alreadyAdded) {
-        alert('Товар уже добавлен в список');
-        return;
-    }
-    
-    receivingItems.push({
-        product_id: productId,
-        name: product.name,
-        sku: product.sku,
-        current_stock: product.stock_quantity,
-        purchase_price: product.purchase_price || 0,
-        sale_price: product.sale_price || 0,
-        quantity: 1
-    });
-    
-    updateReceivingList();
-    closeModal('receivingSearchModal');
-}
-
-// Update receiving list display
-function updateReceivingList() {
-    if (receivingItems.length === 0) {
-        document.getElementById('receivingItemsList').innerHTML = '<p style="color: #ccc; text-align: center; padding: 40px;">Нажмите "Добавить товар" для начала оприходования</p>';
-        document.getElementById('receivingSaveBtn').style.display = 'none';
-        return;
-    }
-    
-    let html = '<div style="display: flex; flex-direction: column; gap: 15px;">';
-    
-    receivingItems.forEach((item, index) => {
-        html += `
-            <div style="background: #3d3d3d; padding: 20px; border-radius: 8px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <strong style="font-size: 16px;">${item.name}</strong>
-                    <button class="btn btn-danger" onclick="removeFromReceiving(${index})" style="padding: 5px 10px;">Удалить</button>
-                </div>
-                
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
-                    <div class="form-group" style="margin: 0;">
-                        <label>Количество</label>
-                        <input type="number" value="${item.quantity}" min="1" onchange="updateReceivingItem(${index}, 'quantity', this.value)">
-                    </div>
-                    <div class="form-group" style="margin: 0;">
-                        <label>Цена закупки ($)</label>
-                        <input type="number" value="${item.purchase_price}" step="0.01" onchange="updateReceivingItem(${index}, 'purchase_price', this.value)">
-                    </div>
-                    <div class="form-group" style="margin: 0;">
-                        <label>Цена продажи ($)</label>
-                        <input type="number" value="${item.sale_price}" step="0.01" onchange="updateReceivingItem(${index}, 'sale_price', this.value)">
-                    </div>
-                </div>
-                
-                <div style="margin-top: 10px; color: #ccc; font-size: 14px;">
-                    Текущий остаток: ${item.current_stock} шт → После оприходования: ${item.current_stock + parseInt(item.quantity)} шт
-                </div>
-            </div>
-        `;
-    });
-    
-    html += '</div>';
-    
-    document.getElementById('receivingItemsList').innerHTML = html;
-    document.getElementById('receivingSaveBtn').style.display = 'block';
-}
-
-// Update receiving item
-function updateReceivingItem(index, field, value) {
-    receivingItems[index][field] = field === 'quantity' ? parseInt(value) : parseFloat(value);
-    updateReceivingList();
-}
-
-// Remove from receiving
-function removeFromReceiving(index) {
-    receivingItems.splice(index, 1);
-    updateReceivingList();
-}
-
-// Save receiving
-async function saveReceiving() {
-    if (receivingItems.length === 0) return;
-    
-    if (!confirm(`Оприходовать ${receivingItems.length} товар(ов)?`)) return;
-    
-    try {
-        const response = await apiCall('/api/warehouse/inventory/receive-batch', {
-            method: 'POST',
-            body: JSON.stringify({ items: receivingItems })
-        });
-        
-        if (response && response.ok) {
-            alert('✅ Товары успешно оприходованы!');
-            receivingItems = [];
-            closeModal('receivingModal');
-            
-            // Reload warehouse if on that section
-            if (currentWarehouseTab === 'stock') {
-                loadCategories();
-            }
-        } else {
-            const error = await response.json();
-            alert('Ошибка: ' + (error.error || 'Не удалось оприходовать товары'));
-        }
-    } catch (error) {
-        console.error('Save receiving error:', error);
-        alert('Ошибка при сохранении');
-    }
-}
-
-// ==================== EDIT PRODUCT PRICES ====================
-
-let currentEditProductId = null;
-
-// Show edit product modal
-async function showEditProductModal(productId) {
-    currentEditProductId = productId;
-    
-    const product = products.find(p => p.id === productId);
-    if (!product) return;
-    
-    document.getElementById('editProductName').value = product.name;
-    document.getElementById('editProductSKU').value = product.sku || '';
-    document.getElementById('editProductPurchasePrice').value = product.purchase_price || '';
-    document.getElementById('editProductSalePrice').value = product.sale_price || '';
-    document.getElementById('editProductMinStock').value = product.min_stock_level || 0;
-    
-    document.getElementById('editProductModal').style.display = 'block';
-}
-
-// Save product edit
-async function saveProductEdit() {
-    if (!currentEditProductId) return;
-    
-    const data = {
-        sku: document.getElementById('editProductSKU').value,
-        purchase_price: parseFloat(document.getElementById('editProductPurchasePrice').value) || null,
-        sale_price: parseFloat(document.getElementById('editProductSalePrice').value) || null,
-        min_stock_level: parseInt(document.getElementById('editProductMinStock').value) || 0
-    };
-    
-    try {
-        const response = await apiCall(`/api/warehouse/products/${currentEditProductId}`, {
-            method: 'PUT',
-            body: JSON.stringify(data)
-        });
-        
-        if (response && response.ok) {
-            alert('✅ Товар обновлен!');
-            closeModal('editProductModal');
-            
-            // Reload products
-            loadProducts(currentSubcategoryId);
-        } else {
-            alert('Ошибка при обновлении товара');
-        }
-    } catch (error) {
-        console.error('Update product error:', error);
-        alert('Ошибка при обновлении');
-    }
-            }
