@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors');  // ← ДОБАВЛЕНО!
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
@@ -18,9 +19,26 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
+// ========== MIDDLEWARE (ПРАВИЛЬНЫЙ ПОРЯДОК!) ==========
+// 1. CORS - ПЕРВЫМ ДЕЛОМ!
+app.use(cors({
+  origin: 'http://localhost:5173', // ← ИЗМЕНИ НА СВОЙ ПОРТ ФРОНТЕНДА если другой!
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// 2. Парсеры
 app.use(express.json());
 app.use(express.static('public'));
 
+// 3. Логирование всех запросов (для отладки)
+app.use((req, res, next) => {
+  console.log(`📨 ${req.method} ${req.path}`);
+  next();
+});
+
+// ========== DATABASE INIT ==========
 async function initDB() {
   try {
     // Базовые таблицы
@@ -184,12 +202,21 @@ async function initDB() {
   }
 }
 
+// ========== AUTH MIDDLEWARE ==========
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.sendStatus(401);
+  
+  if (!token) {
+    console.log('❌ No token provided');
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
+    if (err) {
+      console.log('❌ Invalid token:', err.message);
+      return res.status(403).json({ error: 'Invalid token' });
+    }
     req.user = user;
     next();
   });
@@ -202,69 +229,116 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-// AUTH
+// ========== AUTH ROUTES ==========
 app.post('/api/auth/register', async (req, res) => {
   try {
+    console.log('📝 Registration attempt:', req.body.email);
     const { email, password } = req.body;
+    
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
+    
     const existingUser = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
     if (existingUser.rows.length > 0) {
       return res.status(400).json({ error: 'User already exists' });
     }
+    
     const hashedPassword = await bcrypt.hash(password, 10);
     const result = await pool.query(
       'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, role',
       [email, hashedPassword]
     );
+    
     const user = result.rows[0];
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+    
+    console.log('✅ Registration successful:', email);
     res.json({ token, user });
   } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ error: 'Registration failed' });
+    console.error('❌ Registration error:', error);
+    res.status(500).json({ error: 'Registration failed: ' + error.message });
   }
 });
 
 app.post('/api/auth/login', async (req, res) => {
   try {
+    console.log('🔐 Login attempt:', req.body.email);
     const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' });
+    }
+    
     const result = await pool.query('SELECT * FROM users WHERE email = $1 AND active = true', [email]);
+    
     if (result.rows.length === 0) {
+      console.log('❌ User not found:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+    
     const user = result.rows[0];
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
+    
     if (!isValidPassword) {
+      console.log('❌ Invalid password for:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+    
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
-    res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
+    
+    console.log('✅ Login successful:', email);
+    res.json({ 
+      token, 
+      user: { 
+        id: user.id, 
+        email: user.email, 
+        role: user.role 
+      } 
+    });
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Login failed' });
+    console.error('❌ Login error:', error);
+    res.status(500).json({ error: 'Login failed: ' + error.message });
   }
 });
 
-// DASHBOARD
+// ========== DASHBOARD ==========
 app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
     const userFilter = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
-    const income = await pool.query(`SELECT currency, SUM(amount) as total FROM transactions WHERE type = 'income' ${userFilter} GROUP BY currency`, params);
-    const expenses = await pool.query(`SELECT currency, SUM(amount) as total FROM transactions WHERE type = 'expense' ${userFilter} GROUP BY currency`, params);
-    const cars = await pool.query(`SELECT status, COUNT(*) as count FROM cars WHERE 1=1 ${userFilter} GROUP BY status`, params);
-    const activeRentals = await pool.query(`SELECT COUNT(*) as count FROM rentals WHERE status = 'active' ${userFilter}`, params);
-    res.json({ income: income.rows, expenses: expenses.rows, cars: cars.rows, activeRentals: activeRentals.rows[0]?.count || 0 });
+    
+    const income = await pool.query(
+      `SELECT currency, SUM(amount) as total FROM transactions WHERE type = 'income' ${userFilter} GROUP BY currency`, 
+      params
+    );
+    const expenses = await pool.query(
+      `SELECT currency, SUM(amount) as total FROM transactions WHERE type = 'expense' ${userFilter} GROUP BY currency`, 
+      params
+    );
+    const cars = await pool.query(
+      `SELECT status, COUNT(*) as count FROM cars WHERE 1=1 ${userFilter} GROUP BY status`, 
+      params
+    );
+    const activeRentals = await pool.query(
+      `SELECT COUNT(*) as count FROM rentals WHERE status = 'active' ${userFilter}`, 
+      params
+    );
+    
+    res.json({ 
+      income: income.rows, 
+      expenses: expenses.rows, 
+      cars: cars.rows, 
+      activeRentals: activeRentals.rows[0]?.count || 0 
+    });
   } catch (error) {
     console.error('Dashboard error:', error);
     res.status(500).json({ error: 'Failed to fetch dashboard data' });
   }
 });
 
-// CARS
+// ========== CARS ==========
 app.get('/api/cars', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
@@ -272,6 +346,7 @@ app.get('/api/cars', authenticateToken, async (req, res) => {
     let query = userId ? 'SELECT * FROM cars WHERE user_id = $1' : 'SELECT * FROM cars WHERE 1=1';
     let params = userId ? [userId] : [];
     let paramCount = params.length;
+    
     if (search) {
       paramCount++;
       query += ` AND (LOWER(brand) LIKE $${paramCount} OR LOWER(model) LIKE $${paramCount} OR LOWER(vin) LIKE $${paramCount} OR CAST(year AS TEXT) LIKE $${paramCount})`;
@@ -283,6 +358,7 @@ app.get('/api/cars', authenticateToken, async (req, res) => {
       params.push(status);
     }
     query += ' ORDER BY created_at DESC';
+    
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
@@ -311,10 +387,12 @@ app.get('/api/cars/:id/details', authenticateToken, async (req, res) => {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
     const carQuery = userId ? 'SELECT * FROM cars WHERE id = $1 AND user_id = $2' : 'SELECT * FROM cars WHERE id = $1';
     const carParams = userId ? [carId, userId] : [carId];
+    
     const car = await pool.query(carQuery, carParams);
     if (car.rows.length === 0) {
       return res.status(404).json({ error: 'Car not found' });
     }
+    
     const transactions = await pool.query(`SELECT * FROM transactions WHERE car_id = $1 ORDER BY date DESC`, [carId]);
     const rentals = await pool.query(`SELECT * FROM rentals WHERE car_id = $1 ORDER BY created_at DESC`, [carId]);
     const profit = await pool.query(`
@@ -323,7 +401,14 @@ app.get('/api/cars/:id/details', authenticateToken, async (req, res) => {
         SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as total_expenses
       FROM transactions WHERE car_id = $1 GROUP BY currency
     `, [carId]);
-    res.json({ car: car.rows[0], transactions: transactions.rows, rentals: rentals.rows, parts: [], profitability: profit.rows });
+    
+    res.json({ 
+      car: car.rows[0], 
+      transactions: transactions.rows, 
+      rentals: rentals.rows, 
+      parts: [], 
+      profitability: profit.rows 
+    });
   } catch (error) {
     console.error('Get car details error:', error);
     res.status(500).json({ error: 'Failed to fetch car details' });
@@ -334,9 +419,11 @@ app.post('/api/cars/:id/expense', authenticateToken, async (req, res) => {
   try {
     const { amount, currency, description, category } = req.body;
     const carId = req.params.id;
+    
     if (!amount || !currency || !category) {
       return res.status(400).json({ error: 'Amount, currency, and category are required' });
     }
+    
     await pool.query(
       'INSERT INTO transactions (car_id, user_id, type, amount, currency, description, category) VALUES ($1, $2, $3, $4, $5, $6, $7)',
       [carId, req.user.id, 'expense', amount, currency, description || '', category]
@@ -359,7 +446,7 @@ app.post('/api/cars/:id/dismantle', authenticateToken, async (req, res) => {
   }
 });
 
-// RENTALS (сокращено для экономии места - остальные эндпоинты аналогичны)
+// ========== RENTALS ==========
 app.get('/api/rentals', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
@@ -379,16 +466,20 @@ app.post('/api/rentals', authenticateToken, async (req, res) => {
     const { car_id, client_name, client_phone, start_date, end_date, daily_price, currency } = req.body;
     const startDate = new Date(start_date);
     const endDate = new Date(end_date);
+    
     if (endDate <= startDate) {
       return res.status(400).json({ error: 'End date must be after start date' });
     }
+    
     const days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
     const total_amount = days * daily_price;
+    
     const result = await pool.query(
       `INSERT INTO rentals (car_id, user_id, client_name, client_phone, start_date, end_date, daily_price, currency, total_amount) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
       [car_id, req.user.id, client_name, client_phone, start_date, end_date, daily_price, currency, total_amount]
     );
+    
     await pool.query('UPDATE cars SET status = $1 WHERE id = $2', ['rented', car_id]);
     res.json(result.rows[0]);
   } catch (error) {
@@ -400,10 +491,13 @@ app.post('/api/rentals/:id/complete', authenticateToken, async (req, res) => {
   try {
     const rentalId = req.params.id;
     const rental = await pool.query('SELECT * FROM rentals WHERE id = $1', [rentalId]);
+    
     if (rental.rows.length === 0) {
       return res.status(404).json({ error: 'Rental not found' });
     }
+    
     const rentalData = rental.rows[0];
+    
     await pool.query('UPDATE rentals SET status = $1, completed_at = CURRENT_TIMESTAMP WHERE id = $2', ['completed', rentalId]);
     await pool.query(
       `INSERT INTO transactions (car_id, user_id, type, amount, currency, category, description, rental_id) 
@@ -411,6 +505,7 @@ app.post('/api/rentals/:id/complete', authenticateToken, async (req, res) => {
       [rentalData.car_id, req.user.id, 'income', rentalData.total_amount, rentalData.currency, 'rental', `Rental from ${rentalData.client_name}`, rentalId]
     );
     await pool.query('UPDATE cars SET status = $1 WHERE id = $2', ['active', rentalData.car_id]);
+    
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to complete rental' });
@@ -421,6 +516,7 @@ app.get('/api/rentals/calendar/:year/:month', authenticateToken, async (req, res
   try {
     const { year, month } = req.params;
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
+    
     const query = userId ? 
       `SELECT r.*, c.brand, c.model FROM rentals r JOIN cars c ON r.car_id = c.id 
        WHERE r.user_id = $1 AND ((EXTRACT(YEAR FROM start_date) = $2 AND EXTRACT(MONTH FROM start_date) = $3)
@@ -430,9 +526,11 @@ app.get('/api/rentals/calendar/:year/:month', authenticateToken, async (req, res
        WHERE (EXTRACT(YEAR FROM start_date) = $1 AND EXTRACT(MONTH FROM start_date) = $2)
        OR (EXTRACT(YEAR FROM end_date) = $1 AND EXTRACT(MONTH FROM end_date) = $2)
        OR (start_date <= $3 AND end_date >= $4)`;
+    
     const firstDay = `${year}-${month.padStart(2, '0')}-01`;
     const lastDay = `${year}-${month.padStart(2, '0')}-31`;
     const params = userId ? [userId, year, month, lastDay, firstDay] : [year, month, lastDay, firstDay];
+    
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
@@ -440,7 +538,7 @@ app.get('/api/rentals/calendar/:year/:month', authenticateToken, async (req, res
   }
 });
 
-// WAREHOUSE
+// ========== WAREHOUSE ==========
 app.get('/api/warehouse/categories', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
@@ -557,13 +655,16 @@ app.post('/api/warehouse/inventory/receive', authenticateToken, async (req, res)
     if (!product_id || !source_type || !quantity || quantity <= 0) {
       return res.status(400).json({ error: 'Product, source type, and positive quantity are required' });
     }
+    
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      
       if (purchase_price !== undefined || sale_price !== undefined) {
         const updates = [];
         const values = [];
         let pc = 0;
+        
         if (purchase_price !== undefined && purchase_price !== null) {
           pc++; updates.push(`purchase_price = $${pc}`); values.push(purchase_price);
         }
@@ -573,16 +674,19 @@ app.post('/api/warehouse/inventory/receive', authenticateToken, async (req, res)
         if (currency) {
           pc++; updates.push(`currency = $${pc}`); values.push(currency);
         }
+        
         if (updates.length > 0) {
           pc++; values.push(product_id);
           await client.query(`UPDATE products SET ${updates.join(', ')} WHERE id = $${pc}`, values);
         }
       }
+      
       const result = await client.query(
         `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, currency, location, user_id) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
         [product_id, source_type, null, quantity, purchase_price || null, currency || 'GEL', location || '', req.user.id]
       );
+      
       await client.query('COMMIT');
       res.json(result.rows[0]);
     } catch (error) {
@@ -602,26 +706,33 @@ app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
     if (!product_id || !quantity || !sale_price || quantity <= 0) {
       return res.status(400).json({ error: 'Product, quantity, and sale price are required' });
     }
+    
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      
       const inv = await client.query(
         'SELECT id, quantity, purchase_price FROM inventory WHERE product_id = $1 AND quantity > 0 ORDER BY received_date LIMIT 1',
         [product_id]
       );
+      
       if (inv.rows.length === 0 || inv.rows[0].quantity < quantity) {
         throw new Error('Insufficient inventory');
       }
+      
       await client.query('UPDATE inventory SET quantity = quantity - $1 WHERE id = $2', [quantity, inv.rows[0].id]);
+      
       const sale = await client.query(
         `INSERT INTO inventory_sales (inventory_id, product_id, quantity, sale_price, cost_price, currency, buyer_name, buyer_phone, notes, user_id) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
         [inv.rows[0].id, product_id, quantity, sale_price, inv.rows[0].purchase_price, currency, buyer_name || '', buyer_phone || '', notes || '', req.user.id]
       );
+      
       await client.query(
         'INSERT INTO transactions (user_id, type, amount, currency, category, description) VALUES ($1, $2, $3, $4, $5, $6)',
         [req.user.id, 'income', sale_price * quantity, currency, 'parts', `Sale of ${quantity} units`]
       );
+      
       await client.query('COMMIT');
       res.json(sale.rows[0]);
     } catch (error) {
@@ -635,7 +746,7 @@ app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
   }
 });
 
-// ADMIN
+// ========== ADMIN ==========
 app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const result = await pool.query('SELECT id, email, role, active, created_at FROM users ORDER BY created_at DESC');
@@ -654,13 +765,25 @@ app.put('/api/admin/users/:id/toggle', authenticateToken, requireAdmin, async (r
   }
 });
 
+// ========== ROOT ==========
 app.get('/', (req, res) => {
-  res.send('WGauto CRM Server running');
+  res.send('🚀 WGauto CRM Server running!');
 });
 
+// ========== GLOBAL ERROR HANDLER ==========
+app.use((err, req, res, next) => {
+  console.error('💥 Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error', details: err.message });
+});
+
+// ========== START SERVER ==========
 initDB().then(() => {
   app.listen(port, () => {
-    console.log(`🚀 Server running on port ${port}`);
+    console.log('='.repeat(60));
+    console.log('🚀 WGauto CRM Server started successfully!');
+    console.log(`📡 Server: http://localhost:${port}`);
+    console.log(`🔗 CORS enabled for: http://localhost:5173`);
+    console.log('='.repeat(60));
   });
 });
 
