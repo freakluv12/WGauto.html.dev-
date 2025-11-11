@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
@@ -17,7 +19,7 @@ if (!JWT_SECRET) {
 
 // DATABASE CONNECTION
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/wgauto',
+  connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
@@ -31,20 +33,17 @@ pool.query('SELECT NOW()', (err, res) => {
 });
 
 // ==================== MIDDLEWARE ====================
-// 1. CORS (MUST BE FIRST!)
 app.use(cors({
-  origin: 'http://localhost:5173', // Change if your frontend uses different port
+  origin: 'http://localhost:5173',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// 2. Body parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
-// 3. Request logging
 app.use((req, res, next) => {
   console.log(`📨 ${req.method} ${req.path}`);
   next();
@@ -57,8 +56,6 @@ async function initDB() {
     await client.query('BEGIN');
     
     console.log('🗑️  Dropping old tables...');
-    
-    // Drop all tables in correct order (reverse of foreign key dependencies)
     await client.query('DROP TABLE IF EXISTS inventory_sales CASCADE');
     await client.query('DROP TABLE IF EXISTS inventory CASCADE');
     await client.query('DROP TABLE IF EXISTS products CASCADE');
@@ -68,11 +65,10 @@ async function initDB() {
     await client.query('DROP TABLE IF EXISTS transactions CASCADE');
     await client.query('DROP TABLE IF EXISTS cars CASCADE');
     await client.query('DROP TABLE IF EXISTS users CASCADE');
-    
     console.log('✅ Old tables dropped');
+    
     console.log('🔨 Creating new tables...');
 
-    // Users table
     await client.query(`
       CREATE TABLE users (
         id SERIAL PRIMARY KEY,
@@ -85,7 +81,6 @@ async function initDB() {
     `);
     console.log('  ✓ users');
 
-    // Cars table
     await client.query(`
       CREATE TABLE cars (
         id SERIAL PRIMARY KEY,
@@ -102,7 +97,6 @@ async function initDB() {
     `);
     console.log('  ✓ cars');
 
-    // Transactions table
     await client.query(`
       CREATE TABLE transactions (
         id SERIAL PRIMARY KEY,
@@ -120,7 +114,6 @@ async function initDB() {
     `);
     console.log('  ✓ transactions');
 
-    // Rentals table
     await client.query(`
       CREATE TABLE rentals (
         id SERIAL PRIMARY KEY,
@@ -140,7 +133,6 @@ async function initDB() {
     `);
     console.log('  ✓ rentals');
 
-    // Categories table
     await client.query(`
       CREATE TABLE categories (
         id SERIAL PRIMARY KEY,
@@ -153,7 +145,6 @@ async function initDB() {
     `);
     console.log('  ✓ categories');
 
-    // Subcategories table
     await client.query(`
       CREATE TABLE subcategories (
         id SERIAL PRIMARY KEY,
@@ -166,7 +157,6 @@ async function initDB() {
     `);
     console.log('  ✓ subcategories');
 
-    // Products table
     await client.query(`
       CREATE TABLE products (
         id SERIAL PRIMARY KEY,
@@ -184,7 +174,6 @@ async function initDB() {
     `);
     console.log('  ✓ products');
 
-    // Inventory table
     await client.query(`
       CREATE TABLE inventory (
         id SERIAL PRIMARY KEY,
@@ -203,7 +192,6 @@ async function initDB() {
     `);
     console.log('  ✓ inventory');
 
-    // Inventory sales table
     await client.query(`
       CREATE TABLE inventory_sales (
         id SERIAL PRIMARY KEY,
@@ -223,10 +211,9 @@ async function initDB() {
     `);
     console.log('  ✓ inventory_sales');
 
-    // Create default admin
     const adminExists = await client.query('SELECT id FROM users WHERE email = $1', ['admin@wgauto.com']);
     if (adminExists.rows.length === 0) {
-      const adminPassword = 'admin123'; // Change this!
+      const adminPassword = 'admin123';
       const hashedPassword = await bcrypt.hash(adminPassword, 10);
       await client.query(
         'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3)',
@@ -236,7 +223,6 @@ async function initDB() {
       console.log('👤 DEFAULT ADMIN CREATED:');
       console.log('📧 Email: admin@wgauto.com');
       console.log('🔑 Password: admin123');
-      console.log('⚠️  CHANGE PASSWORD AFTER FIRST LOGIN!');
       console.log('='.repeat(60));
     }
 
@@ -257,13 +243,11 @@ const authenticateToken = (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1];
   
   if (!token) {
-    console.log('❌ No token provided');
     return res.status(401).json({ error: 'Authentication required' });
   }
   
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      console.log('❌ Invalid token:', err.message);
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
     req.user = user;
@@ -299,26 +283,15 @@ app.post('/api/auth/register', async (req, res) => {
     
     const hashedPassword = await bcrypt.hash(password, 10);
     const result = await pool.query(
-      'INSERT INTO users (email, password_hash, role, active) VALUES ($1, $2, $3, $4) RETURNING id, email, role, active',
+      'INSERT INTO users (email, password_hash, role, active) VALUES ($1, $2, $3, $4) RETURNING id, email, role',
       [email, hashedPassword, 'USER', true]
     );
     
     const user = result.rows[0];
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role }, 
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     
     console.log('✅ Registration successful:', email);
-    res.json({ 
-      token, 
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role
-      }
-    });
+    res.json({ token, user });
   } catch (error) {
     console.error('❌ Registration error:', error);
     res.status(500).json({ error: 'Registration failed: ' + error.message });
@@ -334,10 +307,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
     
-    const result = await pool.query(
-      'SELECT id, email, password_hash, role, active FROM users WHERE email = $1',
-      [email]
-    );
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     
     if (result.rows.length === 0) {
       console.log('❌ User not found:', email);
@@ -358,21 +328,10 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
     
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     
     console.log('✅ Login successful:', email);
-    res.json({ 
-      token, 
-      user: { 
-        id: user.id, 
-        email: user.email, 
-        role: user.role 
-      } 
-    });
+    res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
   } catch (error) {
     console.error('❌ Login error:', error);
     res.status(500).json({ error: 'Login failed: ' + error.message });
@@ -386,43 +345,12 @@ app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
     const userFilter = userId ? 'AND user_id = $1' : '';
     const params = userId ? [userId] : [];
     
-    const income = await pool.query(
-      `SELECT currency, COALESCE(SUM(amount), 0) as total 
-       FROM transactions 
-       WHERE type = 'income' ${userFilter} 
-       GROUP BY currency`, 
-      params
-    );
+    const income = await pool.query(`SELECT currency, COALESCE(SUM(amount), 0) as total FROM transactions WHERE type = 'income' ${userFilter} GROUP BY currency`, params);
+    const expenses = await pool.query(`SELECT currency, COALESCE(SUM(amount), 0) as total FROM transactions WHERE type = 'expense' ${userFilter} GROUP BY currency`, params);
+    const cars = await pool.query(`SELECT status, COUNT(*) as count FROM cars WHERE 1=1 ${userFilter} GROUP BY status`, params);
+    const activeRentals = await pool.query(`SELECT COUNT(*) as count FROM rentals WHERE status = 'active' ${userFilter}`, params);
     
-    const expenses = await pool.query(
-      `SELECT currency, COALESCE(SUM(amount), 0) as total 
-       FROM transactions 
-       WHERE type = 'expense' ${userFilter} 
-       GROUP BY currency`, 
-      params
-    );
-    
-    const cars = await pool.query(
-      `SELECT status, COUNT(*) as count 
-       FROM cars 
-       WHERE 1=1 ${userFilter} 
-       GROUP BY status`, 
-      params
-    );
-    
-    const activeRentals = await pool.query(
-      `SELECT COUNT(*) as count 
-       FROM rentals 
-       WHERE status = 'active' ${userFilter}`, 
-      params
-    );
-    
-    res.json({ 
-      income: income.rows, 
-      expenses: expenses.rows, 
-      cars: cars.rows, 
-      activeRentals: parseInt(activeRentals.rows[0]?.count || 0)
-    });
+    res.json({ income: income.rows, expenses: expenses.rows, cars: cars.rows, activeRentals: parseInt(activeRentals.rows[0]?.count || 0) });
   } catch (error) {
     console.error('❌ Dashboard error:', error);
     res.status(500).json({ error: 'Failed to fetch dashboard data' });
@@ -434,7 +362,6 @@ app.get('/api/cars', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
     const { search, status } = req.query;
-    
     let query = 'SELECT * FROM cars WHERE 1=1';
     let params = [];
     let paramCount = 0;
@@ -458,7 +385,6 @@ app.get('/api/cars', authenticateToken, async (req, res) => {
     }
     
     query += ' ORDER BY created_at DESC';
-    
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
@@ -507,33 +433,16 @@ app.get('/api/cars/:id/details', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Car not found' });
     }
     
-    const transactions = await pool.query(
-      'SELECT * FROM transactions WHERE car_id = $1 ORDER BY date DESC',
-      [carId]
-    );
-    
-    const rentals = await pool.query(
-      'SELECT * FROM rentals WHERE car_id = $1 ORDER BY created_at DESC',
-      [carId]
-    );
-    
-    const profit = await pool.query(
-      `SELECT currency, 
+    const transactions = await pool.query('SELECT * FROM transactions WHERE car_id = $1 ORDER BY date DESC', [carId]);
+    const rentals = await pool.query('SELECT * FROM rentals WHERE car_id = $1 ORDER BY created_at DESC', [carId]);
+    const profit = await pool.query(`
+      SELECT currency, 
         COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) as total_income,
         COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expenses
-       FROM transactions 
-       WHERE car_id = $1 
-       GROUP BY currency`,
-      [carId]
-    );
+      FROM transactions WHERE car_id = $1 GROUP BY currency
+    `, [carId]);
     
-    res.json({ 
-      car: car.rows[0], 
-      transactions: transactions.rows, 
-      rentals: rentals.rows, 
-      parts: [], 
-      profitability: profit.rows 
-    });
+    res.json({ car: car.rows[0], transactions: transactions.rows, rentals: rentals.rows, parts: [], profitability: profit.rows });
   } catch (error) {
     console.error('❌ Get car details error:', error);
     res.status(500).json({ error: 'Failed to fetch car details' });
@@ -578,12 +487,7 @@ app.post('/api/cars/:id/dismantle', authenticateToken, async (req, res) => {
 app.get('/api/rentals', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
-    
-    let query = `
-      SELECT r.*, c.brand, c.model, c.year 
-      FROM rentals r 
-      JOIN cars c ON r.car_id = c.id
-    `;
+    let query = `SELECT r.*, c.brand, c.model, c.year FROM rentals r JOIN cars c ON r.car_id = c.id`;
     let params = [];
     
     if (userId) {
@@ -592,7 +496,6 @@ app.get('/api/rentals', authenticateToken, async (req, res) => {
     }
     
     query += ' ORDER BY r.created_at DESC';
-    
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
@@ -626,7 +529,6 @@ app.post('/api/rentals', authenticateToken, async (req, res) => {
     );
     
     await pool.query('UPDATE cars SET status = $1 WHERE id = $2', ['rented', car_id]);
-    
     console.log('✅ Rental created:', result.rows[0].id);
     res.json(result.rows[0]);
   } catch (error) {
@@ -646,26 +548,12 @@ app.post('/api/rentals/:id/complete', authenticateToken, async (req, res) => {
     
     const rentalData = rental.rows[0];
     
-    await pool.query(
-      'UPDATE rentals SET status = $1, completed_at = CURRENT_TIMESTAMP WHERE id = $2',
-      ['completed', rentalId]
-    );
-    
+    await pool.query('UPDATE rentals SET status = $1, completed_at = CURRENT_TIMESTAMP WHERE id = $2', ['completed', rentalId]);
     await pool.query(
       `INSERT INTO transactions (car_id, user_id, type, amount, currency, category, description, rental_id, date) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)`,
-      [
-        rentalData.car_id, 
-        req.user.id, 
-        'income', 
-        rentalData.total_amount, 
-        rentalData.currency, 
-        'rental', 
-        `Rental from ${rentalData.client_name}`, 
-        rentalId
-      ]
+      [rentalData.car_id, req.user.id, 'income', rentalData.total_amount, rentalData.currency, 'rental', `Rental from ${rentalData.client_name}`, rentalId]
     );
-    
     await pool.query('UPDATE cars SET status = $1 WHERE id = $2', ['active', rentalData.car_id]);
     
     console.log('✅ Rental completed:', rentalId);
@@ -682,9 +570,7 @@ app.get('/api/rentals/calendar/:year/:month', authenticateToken, async (req, res
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
     
     let query = `
-      SELECT r.*, c.brand, c.model 
-      FROM rentals r 
-      JOIN cars c ON r.car_id = c.id 
+      SELECT r.*, c.brand, c.model FROM rentals r JOIN cars c ON r.car_id = c.id 
       WHERE (
         (EXTRACT(YEAR FROM start_date) = $1 AND EXTRACT(MONTH FROM start_date) = $2)
         OR (EXTRACT(YEAR FROM end_date) = $1 AND EXTRACT(MONTH FROM end_date) = $2)
@@ -711,7 +597,6 @@ app.get('/api/rentals/calendar/:year/:month', authenticateToken, async (req, res
 app.get('/api/warehouse/categories', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.role === 'ADMIN' ? null : req.user.id;
-    
     let query = 'SELECT * FROM categories';
     let params = [];
     
@@ -721,7 +606,6 @@ app.get('/api/warehouse/categories', authenticateToken, async (req, res) => {
     }
     
     query += ' ORDER BY name';
-    
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
@@ -753,10 +637,7 @@ app.post('/api/warehouse/categories', authenticateToken, async (req, res) => {
 
 app.get('/api/warehouse/subcategories/:categoryId', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT * FROM subcategories WHERE category_id = $1 ORDER BY name',
-      [req.params.categoryId]
-    );
+    const result = await pool.query('SELECT * FROM subcategories WHERE category_id = $1 ORDER BY name', [req.params.categoryId]);
     res.json(result.rows);
   } catch (error) {
     console.error('❌ Get subcategories error:', error);
@@ -788,15 +669,9 @@ app.post('/api/warehouse/subcategories', authenticateToken, async (req, res) => 
 app.get('/api/warehouse/products/:subcategoryId', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT 
-        p.*, 
-        COALESCE(SUM(i.quantity), 0) as total_quantity, 
-        MIN(i.received_date) as first_received
-      FROM products p 
-      LEFT JOIN inventory i ON p.id = i.product_id
-      WHERE p.subcategory_id = $1 
-      GROUP BY p.id 
-      ORDER BY p.name
+      SELECT p.*, COALESCE(SUM(i.quantity), 0) as total_quantity, MIN(i.received_date) as first_received
+      FROM products p LEFT JOIN inventory i ON p.id = i.product_id
+      WHERE p.subcategory_id = $1 GROUP BY p.id ORDER BY p.name
     `, [req.params.subcategoryId]);
     
     res.json(result.rows);
@@ -830,7 +705,6 @@ app.post('/api/warehouse/products', authenticateToken, async (req, res) => {
 app.put('/api/warehouse/products/:id/prices', authenticateToken, async (req, res) => {
   try {
     const { purchase_price, sale_price, currency } = req.body;
-    
     const result = await pool.query(
       'UPDATE products SET purchase_price = $1, sale_price = $2, currency = $3 WHERE id = $4 RETURNING *',
       [purchase_price || null, sale_price || null, currency || 'GEL', req.params.id]
@@ -851,13 +725,8 @@ app.put('/api/warehouse/products/:id/prices', authenticateToken, async (req, res
 app.get('/api/warehouse/inventory/:productId', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT 
-        i.*, 
-        'Purchase' as source_name, 
-        CURRENT_DATE - i.received_date as days_in_storage
-      FROM inventory i 
-      WHERE i.product_id = $1 AND i.quantity > 0 
-      ORDER BY i.received_date
+      SELECT i.*, 'Purchase' as source_name, CURRENT_DATE - i.received_date as days_in_storage
+      FROM inventory i WHERE i.product_id = $1 AND i.quantity > 0 ORDER BY i.received_date
     `, [req.params.productId]);
     
     res.json(result.rows);
@@ -878,58 +747,34 @@ app.post('/api/warehouse/inventory/receive', authenticateToken, async (req, res)
     
     await client.query('BEGIN');
     
-    // Update product prices if provided
     if (purchase_price !== undefined || sale_price !== undefined) {
       const updates = [];
       const values = [];
-      let paramCount = 0;
+      let pc = 0;
       
       if (purchase_price !== undefined && purchase_price !== null) {
-        paramCount++;
-        updates.push(`purchase_price = $${paramCount}`);
-        values.push(purchase_price);
+        pc++; updates.push(`purchase_price = $${pc}`); values.push(purchase_price);
       }
-      
       if (sale_price !== undefined && sale_price !== null) {
-        paramCount++;
-        updates.push(`sale_price = $${paramCount}`);
-        values.push(sale_price);
+        pc++; updates.push(`sale_price = $${pc}`); values.push(sale_price);
       }
-      
       if (currency) {
-        paramCount++;
-        updates.push(`currency = $${paramCount}`);
-        values.push(currency);
+        pc++; updates.push(`currency = $${pc}`); values.push(currency);
       }
       
       if (updates.length > 0) {
-        paramCount++;
-        values.push(product_id);
-        await client.query(
-          `UPDATE products SET ${updates.join(', ')} WHERE id = $${paramCount}`,
-          values
-        );
+        pc++; values.push(product_id);
+        await client.query(`UPDATE products SET ${updates.join(', ')} WHERE id = $${pc}`, values);
       }
     }
     
-    // Add inventory
     const result = await client.query(
       `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, currency, location, user_id, received_date) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_DATE) RETURNING *`,
-      [
-        product_id, 
-        source_type, 
-        null, 
-        quantity, 
-        purchase_price || null, 
-        currency || 'GEL', 
-        location || '', 
-        req.user.id
-      ]
+      [product_id, source_type, null, quantity, purchase_price || null, currency || 'GEL', location || '', req.user.id]
     );
     
     await client.query('COMMIT');
-    
     console.log('✅ Inventory received:', result.rows[0].id);
     res.json(result.rows[0]);
   } catch (error) {
@@ -952,7 +797,6 @@ app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
     
     await client.query('BEGIN');
     
-    // Get inventory (FIFO)
     const inv = await client.query(
       'SELECT id, quantity, purchase_price FROM inventory WHERE product_id = $1 AND quantity > 0 ORDER BY received_date LIMIT 1',
       [product_id]
@@ -962,45 +806,20 @@ app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
       throw new Error('Insufficient inventory');
     }
     
-    // Reduce inventory
-    await client.query(
-      'UPDATE inventory SET quantity = quantity - $1 WHERE id = $2',
-      [quantity, inv.rows[0].id]
-    );
+    await client.query('UPDATE inventory SET quantity = quantity - $1 WHERE id = $2', [quantity, inv.rows[0].id]);
     
-    // Record sale
     const sale = await client.query(
       `INSERT INTO inventory_sales (inventory_id, product_id, quantity, sale_price, cost_price, currency, buyer_name, buyer_phone, notes, user_id, sale_date) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_DATE) RETURNING *`,
-      [
-        inv.rows[0].id, 
-        product_id, 
-        quantity, 
-        sale_price, 
-        inv.rows[0].purchase_price, 
-        currency || 'GEL', 
-        buyer_name || '', 
-        buyer_phone || '', 
-        notes || '', 
-        req.user.id
-      ]
+      [inv.rows[0].id, product_id, quantity, sale_price, inv.rows[0].purchase_price, currency || 'GEL', buyer_name || '', buyer_phone || '', notes || '', req.user.id]
     );
     
-    // Record transaction
     await client.query(
       'INSERT INTO transactions (user_id, type, amount, currency, category, description, date) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)',
-      [
-        req.user.id, 
-        'income', 
-        sale_price * quantity, 
-        currency || 'GEL', 
-        'parts', 
-        `Sale of ${quantity} units`
-      ]
+      [req.user.id, 'income', sale_price * quantity, currency || 'GEL', 'parts', `Sale of ${quantity} units`]
     );
     
     await client.query('COMMIT');
-    
     console.log('✅ Sale recorded:', sale.rows[0].id);
     res.json(sale.rows[0]);
   } catch (error) {
@@ -1015,9 +834,7 @@ app.post('/api/warehouse/sales', authenticateToken, async (req, res) => {
 // ==================== ADMIN ====================
 app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT id, email, role, active, created_at FROM users ORDER BY created_at DESC'
-    );
+    const result = await pool.query('SELECT id, email, role, active, created_at FROM users ORDER BY created_at DESC');
     res.json(result.rows);
   } catch (error) {
     console.error('❌ Get users error:', error);
@@ -1038,25 +855,15 @@ app.put('/api/admin/users/:id/toggle', authenticateToken, requireAdmin, async (r
 
 // ==================== ROOT ====================
 app.get('/', (req, res) => {
-  res.send(`
-    <h1>🚀 WGauto CRM Server</h1>
-    <p>Status: <strong style="color:green">Running</strong></p>
-    <p>Database: <strong>Connected</strong></p>
-    <p>Port: <strong>${port}</strong></p>
-  `);
+  res.send(`<h1>🚀 WGauto CRM Server</h1><p>Status: <strong style="color:green">Running</strong></p><p>Port: ${port}</p>`);
 });
 
-// ==================== ERROR HANDLER ====================
+// ==================== ERROR HANDLERS ====================
 app.use((err, req, res, next) => {
   console.error('💥 Unhandled error:', err);
-  res.status(500).json({ 
-    error: 'Internal server error', 
-    message: err.message,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
-  });
+  res.status(500).json({ error: 'Internal server error', message: err.message });
 });
 
-// ==================== 404 HANDLER ====================
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
 });
@@ -1066,11 +873,10 @@ initDB()
   .then(() => {
     app.listen(port, () => {
       console.log('='.repeat(70));
-      console.log('🚀 WGauto CRM Server started successfully!');
-      console.log(`📡 Server URL: http://localhost:${port}`);
-      console.log(`🔗 Frontend CORS: http://localhost:5173`);
+      console.log('🚀 WGauto CRM Server started!');
+      console.log(`📡 Server: http://localhost:${port}`);
+      console.log(`🔗 CORS: http://localhost:5173`);
       console.log(`🗄️  Database: Connected`);
-      console.log(`🔐 JWT: ${JWT_SECRET ? 'Configured' : 'Using random key'}`);
       console.log('='.repeat(70));
     });
   })
