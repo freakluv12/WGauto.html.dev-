@@ -1,0 +1,359 @@
+/* WGauto CRM - Module Styles */
+
+/* ==================== WAREHOUSE STYLES ==================== */
+.warehouse-action-bar {
+    display: flex;
+    background: #3d3d3d;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.categories-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+}
+
+.category-card {
+    background: #3d3d3d;
+    border-radius: 12px;
+    padding: 30px;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-align: center;
+}
+
+.category-card:hover {
+    transform: translateY(-5px);
+    background: #4d4d4d;
+}
+
+.category-icon {
+    font-size: 48px;
+    margin-bottom: 15px;
+}
+
+.category-name {
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.category-desc {
+    font-size: 14px;
+    color: #ccc;
+}
+
+/* ==================== POS SYSTEM STYLES ==================== */
+.pos-container {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    height: calc(100vh - 200px);
+}
+
+/* Left Panel - Products */
+.pos-left {
+    background: #3d3d3d;
+    border-radius: 12px;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.pos-search {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #555;
+    border-radius: 8px;
+    background: #2d2d2d;
+    color: #fff;
+    font-size: 16px;
+    margin-bottom: 20px;
+}
+
+.pos-search:focus {
+    outline: none;
+    border-color: #4CAF50;
+}
+
+.pos-breadcrumb {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+
+.pos-breadcrumb-item {
+    padding: 8px 16px;
+    background: #2d2d2d;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.3s;
+    font-size: 14px;
+}
+
+.pos-breadcrumb-item:hover {
+    background: #4CAF50;
+}
+
+.pos-items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pos-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #2d2d2d;
+    padding: 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.pos-item:hover {
+    background: #4d4d4d;
+    transform: translateX(5px);
+}
+
+.pos-item-info {
+    flex: 1;
+}
+
+.pos-item-name {
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.pos-item-stock {
+    font-size: 12px;
+    color: #ccc;
+}
+
+.pos-item-stock.low {
+    color: #ff9800;
+    font-weight: bold;
+}
+
+.pos-item-stock.out {
+    color: #f44336;
+    font-weight: bold;
+}
+
+.pos-item-price {
+    font-size: 18px;
+    font-weight: bold;
+    color: #4CAF50;
+}
+
+/* Right Panel - Receipt */
+.pos-right {
+    background: #3d3d3d;
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+}
+
+.pos-receipt-header {
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #4CAF50;
+    text-align: center;
+}
+
+.pos-receipt-items {
+    flex: 1;
+    overflow-y: auto;
+    margin-bottom: 20px;
+}
+
+.pos-receipt-item {
+    background: #2d2d2d;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+}
+
+.pos-receipt-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.pos-receipt-item-name {
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.pos-receipt-item-remove {
+    background: #f44336;
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.3s;
+}
+
+.pos-receipt-item-remove:hover {
+    background: #da190b;
+}
+
+.pos-receipt-item-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.pos-quantity-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pos-quantity-btn {
+    background: #4CAF50;
+    color: white;
+    border: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.3s;
+}
+
+.pos-quantity-btn:hover {
+    background: #45a049;
+}
+
+.pos-quantity-value {
+    font-weight: bold;
+    min-width: 30px;
+    text-align: center;
+}
+
+.pos-receipt-item-total {
+    font-weight: bold;
+    color: #4CAF50;
+    font-size: 16px;
+}
+
+.pos-receipt-empty {
+    text-align: center;
+    color: #999;
+    padding: 40px 20px;
+}
+
+.pos-totals {
+    border-top: 2px solid #555;
+    padding-top: 15px;
+    margin-bottom: 15px;
+}
+
+.pos-total-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+.pos-total-row.final {
+    font-size: 24px;
+    font-weight: bold;
+    color: #4CAF50;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 2px solid #4CAF50;
+}
+
+.pos-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.pos-btn {
+    flex: 1;
+    padding: 15px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.pos-btn-clear {
+    background: #f44336;
+    color: white;
+}
+
+.pos-btn-clear:hover {
+    background: #da190b;
+}
+
+.pos-btn-complete {
+    background: #4CAF50;
+    color: white;
+}
+
+.pos-btn-complete:hover {
+    background: #45a049;
+}
+
+.pos-btn-complete:disabled {
+    background: #666;
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* ==================== RESPONSIVE FOR MODULES ==================== */
+@media (max-width: 768px) {
+    .categories-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .pos-container {
+        grid-template-columns: 1fr;
+        height: auto;
+    }
+
+    .pos-left,
+    .pos-right {
+        min-height: 400px;
+    }
+}
+
+/* ==================== PRINT STYLES ==================== */
+@media print {
+    .sidebar,
+    .header,
+    .nav-item,
+    .btn,
+    .modal {
+        display: none !important;
+    }
+
+    .main-content {
+        margin-left: 0;
+    }
+
+    body {
+        background: white;
+        color: black;
+    }
+}
