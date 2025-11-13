@@ -135,28 +135,23 @@ async function initDB() {
             )
         `);
 
-        // Warehouse: Inventory
+        // Warehouse: Inventory (ОБНОВЛЕНО - добавлено sale_price)
         await pool.query(`
             CREATE TABLE IF NOT EXISTS inventory (
                 id SERIAL PRIMARY KEY,
                 product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
-                source_type VARCHAR(20) NOT NULL CHECK (source_type IN ('purchased', 'dismantled', 'returned')),
+                source_type VARCHAR(20) NOT NULL,
                 source_id INTEGER,
-                quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+                quantity INTEGER NOT NULL DEFAULT 0,
                 purchase_price DECIMAL(10,2),
                 sale_price DECIMAL(10,2),
                 currency VARCHAR(3),
                 location VARCHAR(100),
                 received_date DATE DEFAULT CURRENT_DATE,
                 user_id INTEGER REFERENCES users(id),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT inventory_quantity_positive CHECK (quantity >= 0)
             )
-        `);
-
-        // Create indexes for inventory
-        await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_inventory_product_quantity ON inventory(product_id, quantity) WHERE quantity > 0;
-            CREATE INDEX IF NOT EXISTS idx_inventory_received_date ON inventory(received_date);
         `);
 
         // Warehouse: Procurements
@@ -188,9 +183,7 @@ async function initDB() {
             )
         `);
 
-        // ==================== NEW POS SYSTEM ====================
-        
-        // POS Shifts table
+        // ==================== POS SHIFTS TABLE ====================
         await pool.query(`
             CREATE TABLE IF NOT EXISTS pos_shifts (
                 id SERIAL PRIMARY KEY,
@@ -198,110 +191,60 @@ async function initDB() {
                 start_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 end_time TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        
-        await pool.query(`
+            );
             CREATE INDEX IF NOT EXISTS idx_pos_shifts_user ON pos_shifts(user_id);
             CREATE INDEX IF NOT EXISTS idx_pos_shifts_active ON pos_shifts(user_id, end_time) WHERE end_time IS NULL;
         `);
 
-        // Receipts table
+        // ==================== RECEIPTS TABLE ====================
         await pool.query(`
             CREATE TABLE IF NOT EXISTS receipts (
                 id SERIAL PRIMARY KEY,
-                shift_id INTEGER NOT NULL REFERENCES pos_shifts(id) ON DELETE CASCADE,
+                shift_id INTEGER REFERENCES pos_shifts(id) ON DELETE CASCADE,
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 sale_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 total_amount DECIMAL(10, 2) NOT NULL,
                 currency VARCHAR(10) DEFAULT 'GEL',
                 is_cancelled BOOLEAN DEFAULT false,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        
-        await pool.query(`
+            );
             CREATE INDEX IF NOT EXISTS idx_receipts_shift ON receipts(shift_id);
             CREATE INDEX IF NOT EXISTS idx_receipts_user ON receipts(user_id);
             CREATE INDEX IF NOT EXISTS idx_receipts_time ON receipts(sale_time);
             CREATE INDEX IF NOT EXISTS idx_receipts_cancelled ON receipts(is_cancelled);
         `);
 
-        // Sale Items table
+        // ==================== SALE ITEMS TABLE ====================
         await pool.query(`
             CREATE TABLE IF NOT EXISTS sale_items (
                 id SERIAL PRIMARY KEY,
                 receipt_id INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
                 product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-                quantity INTEGER NOT NULL CHECK (quantity > 0),
-                sale_price DECIMAL(10, 2) NOT NULL CHECK (sale_price >= 0),
-                cost_price DECIMAL(10, 2) CHECK (cost_price IS NULL OR cost_price >= 0),
+                quantity INTEGER NOT NULL,
+                sale_price DECIMAL(10, 2) NOT NULL,
+                cost_price DECIMAL(10, 2),
                 currency VARCHAR(10) DEFAULT 'GEL',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-        
-        await pool.query(`
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT sale_items_quantity_positive CHECK (quantity > 0),
+                CONSTRAINT sale_items_prices_nonnegative CHECK (sale_price >= 0 AND (cost_price IS NULL OR cost_price >= 0))
+            );
             CREATE INDEX IF NOT EXISTS idx_sale_items_receipt ON sale_items(receipt_id);
             CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
-            CREATE INDEX IF NOT EXISTS idx_sale_items_analytics ON sale_items(product_id, quantity, sale_price, cost_price);
         `);
 
-// Safely drop old table or view if it exists
-await pool.query(`
-    DO $$
-    BEGIN
-        IF EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'inventory_sales') THEN
-            DROP VIEW inventory_sales;
-        ELSIF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'inventory_sales') THEN
-            DROP TABLE inventory_sales;
-        END IF;
-    END $$;
-`);
-        
-// Create view for inventory sales (replaces old table)
-        await pool.query(`
-            CREATE OR REPLACE VIEW inventory_sales AS
-            SELECT 
-                si.id,
-                si.product_id,
-                si.quantity,
-                si.sale_price,
-                si.cost_price,
-                si.currency,
-                r.sale_time as sale_date,
-                r.shift_id,
-                r.user_id,
-                r.is_cancelled
-            FROM sale_items si
-            JOIN receipts r ON si.receipt_id = r.id
-            WHERE r.is_cancelled = false;
-        `);
-
-        // 🩹 Fix: ensure sale_price exists in inventory (for compatibility)
-        // This adds the column if it doesn't exist (safe to run multiple times)
-        await pool.query(`
-            ALTER TABLE inventory
-            ADD COLUMN IF NOT EXISTS sale_price DECIMAL(10,2);
-        `);
-
-        // Create view for products with stock
+        // Создаем виды для аналитики
         await pool.query(`
             CREATE OR REPLACE VIEW products_with_stock AS
             SELECT 
                 p.*,
                 COALESCE(SUM(i.quantity), 0) as total_quantity,
                 MIN(i.received_date) as first_received,
-                MAX(i.received_date) as last_received,
-                AVG(i.sale_price) as avg_sale_price
+                MAX(i.received_date) as last_received
             FROM products p
             LEFT JOIN inventory i ON p.id = i.product_id
             GROUP BY p.id;
         `);
 
-        console.log('✅ Database views created successfully');
-
-        // View for active shifts with stats
         await pool.query(`
             CREATE OR REPLACE VIEW active_shifts_with_stats AS
             SELECT 
@@ -337,7 +280,7 @@ await pool.query(`
             console.log('='.repeat(60));
         }
 
-        console.log('✅ Database initialized successfully with POS system');
+        console.log('✅ Database initialized successfully');
     } catch (error) {
         console.error('❌ Database initialization error:', error);
         throw error;
