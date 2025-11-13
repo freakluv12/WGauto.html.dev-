@@ -106,26 +106,16 @@ const POS = {
     async loadProducts(subcategoryId) {
         this.currentSubcategoryId = subcategoryId;
         try {
-            // Загружаем продукты с ценами из инвентаря
+            // Загружаем продукты - теперь они уже содержат default_sale_price из базы
             const response = await API.call(`/api/warehouse/products/${subcategoryId}`);
             if (!response) return;
             
             const products = await response.json();
             
-            // Для каждого продукта загружаем инвентарь с ценами
-            for (let product of products) {
-                try {
-                    const invResponse = await API.call(`/api/warehouse/inventory?product_id=${product.id}`);
-                    if (invResponse) {
-                        const inventory = await invResponse.json();
-                        // Берем первую цену продажи из инвентаря
-                        const itemWithPrice = inventory.find(inv => inv.sale_price && inv.sale_price > 0);
-                        product.defaultSalePrice = itemWithPrice ? itemWithPrice.sale_price : 0;
-                    }
-                } catch (err) {
-                    console.error('Error loading inventory for product:', product.id, err);
-                }
-            }
+            // Присваиваем цену из default_sale_price
+            products.forEach(product => {
+                product.defaultSalePrice = parseFloat(product.default_sale_price) || 0;
+            });
             
             this.products = products;
             this.currentView = 'products';
