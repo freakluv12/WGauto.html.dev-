@@ -25,25 +25,83 @@ const POS = {
         }
     },
 
+    async startShift() {
+        if (this.activeShift) {
+            alert('У вас уже открыта смена');
+            return;
+        }
+
+        try {
+            const response = await API.call('/api/pos/shift/start', {
+                method: 'POST'
+            });
+
+            if (response && response.ok) {
+                this.activeShift = await response.json();
+                alert('Смена открыта');
+                this.renderPOS();
+            }
+        } catch (error) {
+            alert('Ошибка открытия смены: ' + error.message);
+        }
+    },
+
+    async endShift() {
+        if (!this.activeShift) {
+            alert('Нет активной смены');
+            return;
+        }
+
+        if (this.cart.length > 0) {
+            alert('Завершите текущую продажу перед закрытием смены');
+            return;
+        }
+
+        if (!confirm('Закрыть смену?')) {
+            return;
+        }
+
+        try {
+            const response = await API.call('/api/pos/shift/end', {
+                method: 'POST'
+            });
+
+            if (response && response.ok) {
+                alert('Смена закрыта');
+                this.activeShift = null;
+                this.renderPOS();
+            }
+        } catch (error) {
+            alert('Ошибка закрытия смены: ' + error.message);
+        }
+    },
+
     renderPOS() {
+        const shiftStatus = this.activeShift 
+            ? `<div class="shift-status active">Смена открыта с ${new Date(this.activeShift.start_time).toLocaleTimeString()}</div>`
+            : `<div class="shift-status inactive">Смена не открыта <button class="btn" onclick="POS.startShift()">Открыть смену</button></div>`;
+
         document.getElementById('posContent').innerHTML = `
+            ${shiftStatus}
             <div class="pos-container">
                 <div class="pos-left">
                     <input type="text" id="posSearch" placeholder="Поиск товаров..." 
-                           class="pos-search" oninput="POS.handleSearch()">
+                           class="pos-search" oninput="POS.search()">
                     <div id="posBreadcrumb" class="pos-breadcrumb"></div>
                     <div id="posItemsList" class="pos-items-list"></div>
                 </div>
                 <div class="pos-right">
                     <div class="pos-receipt-header">
                         Текущая продажа
-                        ${this.activeShift ? `<span style="font-size: 12px; color: #888;">Смена #${this.activeShift.id}</span>` : ''}
+                        ${this.activeShift ? `<button class="btn btn-small" onclick="POS.endShift()" style="float: right;">Закрыть смену</button>` : ''}
                     </div>
                     <div id="posReceiptItems" class="pos-receipt-items"></div>
                     <div id="posTotals" class="pos-totals"></div>
                     <div class="pos-actions">
                         <button class="pos-btn pos-btn-clear" onclick="POS.clearCart()">Очистить</button>
-                        <button class="pos-btn pos-btn-complete" onclick="POS.completeSale()">Завершить продажу</button>
+                        <button class="pos-btn pos-btn-complete" onclick="POS.completeSale()" ${!this.activeShift ? 'disabled' : ''}>
+                            Завершить продажу
+                        </button>
                     </div>
                 </div>
             </div>
@@ -87,6 +145,20 @@ const POS = {
             if (!response) return;
             
             this.products = await response.json();
+            
+            // Load inventory to get sale prices
+            for (let product of this.products) {
+                const invResponse = await API.call(`/api/warehouse/inventory/${product.id}`);
+                if (invResponse && invResponse.ok) {
+                    const inventory = await invResponse.json();
+                    // Get average sale price from inventory
+                    if (inventory.length > 0) {
+                        const avgPrice = inventory.reduce((sum, inv) => sum + (parseFloat(inv.sale_price) || 0), 0) / inventory.length;
+                        product.suggested_price = avgPrice > 0 ? avgPrice : null;
+                    }
+                }
+            }
+            
             this.currentView = 'products';
             this.renderBreadcrumb();
             this.renderItems();
@@ -138,16 +210,17 @@ const POS = {
             itemsHTML = this.products.map(prod => {
                 const stockClass = prod.total_quantity <= 0 ? 'out' : 
                                   prod.total_quantity <= prod.min_stock_level ? 'low' : '';
+                const priceHint = prod.suggested_price ? ` (${prod.suggested_price.toFixed(2)})` : '';
                 return `
                     <div class="pos-item ${prod.total_quantity <= 0 ? 'disabled' : ''}" 
-                         onclick='POS.addToCart(${JSON.stringify(prod).replace(/'/g, "&apos;")})'>
+                         onclick='${prod.total_quantity > 0 ? `POS.addToCart(${JSON.stringify(prod).replace(/'/g, "&apos;")})` : ""}'>
                         <div class="pos-item-info">
-                            <div class="pos-item-name">${prod.name}</div>
+                            <div class="pos-item-name">${prod.name}${priceHint}</div>
                             <div class="pos-item-stock ${stockClass}">
                                 На складе: ${prod.total_quantity || 0}
                             </div>
                         </div>
-                        <div class="pos-item-price">+</div>
+                        <div class="pos-item-price">${prod.total_quantity > 0 ? '+' : '✕'}</div>
                     </div>
                 `;
             }).join('');
@@ -156,55 +229,49 @@ const POS = {
         document.getElementById('posItemsList').innerHTML = itemsHTML || '<div class="loading">Нет элементов</div>';
     },
 
-    handleSearch() {
-        const searchTerm = document.getElementById('posSearch').value.trim();
-        
+    search() {
+        const searchTerm = document.getElementById('posSearch').value.toLowerCase();
         if (!searchTerm) {
             this.renderItems();
             return;
         }
-
-        if (searchTerm.length < 2) return;
-
-        clearTimeout(this.searchTimeout);
-        this.searchTimeout = setTimeout(() => this.searchProducts(searchTerm), 300);
-    },
-
-    async searchProducts(query) {
-        try {
-            const response = await API.call(`/api/warehouse/products/search/all?q=${encodeURIComponent(query)}`);
-            if (!response) return;
+        
+        if (this.currentView === 'products') {
+            const filtered = this.products.filter(p => 
+                p.name.toLowerCase().includes(searchTerm) ||
+                (p.sku && p.sku.toLowerCase().includes(searchTerm))
+            );
             
-            const results = await response.json();
-            
-            let itemsHTML = results.map(prod => {
+            let itemsHTML = filtered.map(prod => {
                 const stockClass = prod.total_quantity <= 0 ? 'out' : 
                                   prod.total_quantity <= prod.min_stock_level ? 'low' : '';
+                const priceHint = prod.suggested_price ? ` (${prod.suggested_price.toFixed(2)})` : '';
                 return `
                     <div class="pos-item ${prod.total_quantity <= 0 ? 'disabled' : ''}" 
-                         onclick='POS.addToCart(${JSON.stringify(prod).replace(/'/g, "&apos;")})'>
+                         onclick='${prod.total_quantity > 0 ? `POS.addToCart(${JSON.stringify(prod).replace(/'/g, "&apos;")})` : ""}'>
                         <div class="pos-item-info">
-                            <div class="pos-item-name">${prod.category_icon || '📦'} ${prod.name}</div>
-                            <div style="font-size: 11px; color: #888;">${prod.category_name} › ${prod.subcategory_name}</div>
+                            <div class="pos-item-name">${prod.name}${priceHint}</div>
                             <div class="pos-item-stock ${stockClass}">
                                 На складе: ${prod.total_quantity || 0}
                             </div>
                         </div>
-                        <div class="pos-item-price">+</div>
+                        <div class="pos-item-price">${prod.total_quantity > 0 ? '+' : '✕'}</div>
                     </div>
                 `;
             }).join('');
             
             document.getElementById('posItemsList').innerHTML = itemsHTML || '<div class="loading">Нет результатов</div>';
-            
-        } catch (error) {
-            console.error('Search error:', error);
         }
     },
 
     addToCart(product) {
         if (product.total_quantity <= 0) {
             alert('Товар отсутствует на складе');
+            return;
+        }
+
+        if (!this.activeShift) {
+            alert('Откройте смену перед началом продажи');
             return;
         }
         
@@ -219,7 +286,7 @@ const POS = {
             this.cart.push({ 
                 ...product, 
                 quantity: 1,
-                salePrice: 0
+                salePrice: product.suggested_price || 0
             });
         }
         
@@ -294,7 +361,7 @@ const POS = {
             </div>
             <div class="pos-total-row final">
                 <span>ИТОГО:</span>
-                <span>${total.toFixed(2)}</span>
+                <span>${total.toFixed(2)} ₾</span>
             </div>
         `;
         
@@ -312,6 +379,11 @@ const POS = {
     },
 
     async completeSale() {
+        if (!this.activeShift) {
+            alert('Откройте смену перед началом продажи');
+            return;
+        }
+
         if (this.cart.length === 0) {
             alert('Корзина пуста');
             return;
@@ -326,40 +398,29 @@ const POS = {
         if (!confirm('Завершить продажу?')) {
             return;
         }
-
-        const total = this.cart.reduce((sum, item) => sum + (item.quantity * item.salePrice), 0);
         
         try {
-            const response = await API.call('/api/pos/sale/complete', {
+            const response = await API.call('/api/pos/sale', {
                 method: 'POST',
                 body: JSON.stringify({
-                    items: this.cart.map(item => ({
-                        id: item.id,
-                        name: item.name,
-                        quantity: item.quantity,
-                        salePrice: item.salePrice
-                    })),
+                    items: this.cart,
                     currency: 'GEL'
                 })
             });
 
             if (response && response.ok) {
                 const result = await response.json();
-                alert(`Продажа успешно завершена!\nЧек #${result.receipt.id}\nСумма: ${total.toFixed(2)} GEL`);
-                
+                alert(`Продажа завершена! Чек #${result.receipt.id}`);
                 this.cart = [];
                 this.renderCart();
                 
-                if (this.currentView === 'products') {
+                // Reload products to update stock
+                if (this.currentSubcategoryId) {
                     this.loadProducts(this.currentSubcategoryId);
                 }
-            } else {
-                const error = await response.json();
-                alert('Ошибка при завершении продажи: ' + (error.error || 'Unknown error'));
             }
         } catch (error) {
-            console.error('Complete sale error:', error);
-            alert('Ошибка при завершении продажи: ' + error.message);
+            alert('Ошибка завершения продажи: ' + error.message);
         }
     }
 };
