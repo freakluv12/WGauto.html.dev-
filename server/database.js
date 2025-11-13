@@ -247,9 +247,14 @@ async function initDB() {
             CREATE INDEX IF NOT EXISTS idx_sale_items_analytics ON sale_items(product_id, quantity, sale_price, cost_price);
         `);
 
-        // Создаем VIEWS (представления)
+        // Сначала удаляем старые VIEWS если они существуют
+        await pool.query(`DROP VIEW IF EXISTS inventory_sales CASCADE`);
+        await pool.query(`DROP VIEW IF EXISTS products_with_stock CASCADE`);
+        await pool.query(`DROP VIEW IF EXISTS active_shifts_with_stats CASCADE`);
+
+        // Теперь создаем новые VIEWS (представления)
         await pool.query(`
-            CREATE OR REPLACE VIEW inventory_sales AS
+            CREATE VIEW inventory_sales AS
             SELECT 
                 si.id,
                 si.product_id,
@@ -267,7 +272,7 @@ async function initDB() {
         `);
 
         await pool.query(`
-            CREATE OR REPLACE VIEW products_with_stock AS
+            CREATE VIEW products_with_stock AS
             SELECT 
                 p.*,
                 COALESCE(SUM(i.quantity), 0) as total_quantity,
@@ -279,7 +284,7 @@ async function initDB() {
         `);
 
         await pool.query(`
-            CREATE OR REPLACE VIEW active_shifts_with_stats AS
+            CREATE VIEW active_shifts_with_stats AS
             SELECT 
                 ps.*,
                 COUNT(r.id) as receipts_count,
