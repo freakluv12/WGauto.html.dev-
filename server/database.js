@@ -249,7 +249,6 @@ async function initDB() {
 
 // Drop old inventory_sales table if exists (до создания VIEW)
 await pool.query(`DROP TABLE IF EXISTS inventory_sales CASCADE;`);
-
 // Create view for inventory sales (replaces old table)
         await pool.query(`
             CREATE OR REPLACE VIEW inventory_sales AS
@@ -270,7 +269,7 @@ await pool.query(`DROP TABLE IF EXISTS inventory_sales CASCADE;`);
         `);
 
         // 🩹 Fix: ensure sale_price exists in inventory (for compatibility)
-        -- This adds the column if it doesn't exist (safe to run multiple times)
+        // This adds the column if it doesn't exist (safe to run multiple times)
         await pool.query(`
             ALTER TABLE inventory
             ADD COLUMN IF NOT EXISTS sale_price DECIMAL(10,2);
@@ -291,20 +290,6 @@ await pool.query(`DROP TABLE IF EXISTS inventory_sales CASCADE;`);
         `);
 
         console.log('✅ Database views created successfully');
-        
-        // View for products with stock
-        await pool.query(`
-            CREATE OR REPLACE VIEW products_with_stock AS
-            SELECT 
-                p.*,
-                COALESCE(SUM(i.quantity), 0) as total_quantity,
-                MIN(i.received_date) as first_received,
-                MAX(i.received_date) as last_received,
-                AVG(i.sale_price) as avg_sale_price
-            FROM products p
-            LEFT JOIN inventory i ON p.id = i.product_id
-            GROUP BY p.id;
-        `);
 
         // View for active shifts with stats
         await pool.query(`
