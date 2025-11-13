@@ -135,7 +135,7 @@ async function initDB() {
             )
         `);
 
-        // Warehouse: Inventory
+        // Warehouse: Inventory - добавляем sale_price
         await pool.query(`
             CREATE TABLE IF NOT EXISTS inventory (
                 id SERIAL PRIMARY KEY,
@@ -151,6 +151,18 @@ async function initDB() {
                 user_id INTEGER REFERENCES users(id),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        `);
+
+        // Добавляем sale_price к существующей таблице, если её нет
+        await pool.query(`
+            DO $$ 
+            BEGIN
+                BEGIN
+                    ALTER TABLE inventory ADD COLUMN sale_price DECIMAL(10,2);
+                EXCEPTION
+                    WHEN duplicate_column THEN NULL;
+                END;
+            END $$;
         `);
 
         // Warehouse: Procurements
@@ -182,9 +194,7 @@ async function initDB() {
             )
         `);
 
-        // ==================== POS TABLES ====================
-        
-        // POS Shifts
+        // POS SHIFTS TABLE
         await pool.query(`
             CREATE TABLE IF NOT EXISTS pos_shifts (
                 id SERIAL PRIMARY KEY,
@@ -195,15 +205,7 @@ async function initDB() {
             )
         `);
 
-        await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_pos_shifts_user ON pos_shifts(user_id)
-        `);
-
-        await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_pos_shifts_active ON pos_shifts(user_id, end_time) WHERE end_time IS NULL
-        `);
-
-        // Receipts
+        // RECEIPTS TABLE
         await pool.query(`
             CREATE TABLE IF NOT EXISTS receipts (
                 id SERIAL PRIMARY KEY,
@@ -217,20 +219,7 @@ async function initDB() {
             )
         `);
 
-        await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_receipts_shift ON receipts(shift_id)
-        `);
-        await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_receipts_user ON receipts(user_id)
-        `);
-        await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_receipts_time ON receipts(sale_time)
-        `);
-        await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_receipts_cancelled ON receipts(is_cancelled)
-        `);
-
-        // Sale Items
+        // SALE ITEMS TABLE
         await pool.query(`
             CREATE TABLE IF NOT EXISTS sale_items (
                 id SERIAL PRIMARY KEY,
@@ -244,42 +233,21 @@ async function initDB() {
             )
         `);
 
+        // Создаем индексы
         await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_sale_items_receipt ON sale_items(receipt_id)
-        `);
-        await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id)
-        `);
-
-        // ==================== VIEWS ====================
-
-        // Active shifts with statistics
-        await pool.query(`
-            CREATE OR REPLACE VIEW active_shifts_with_stats AS
-            SELECT 
-                ps.*,
-                COUNT(r.id) as receipts_count,
-                COALESCE(SUM(CASE WHEN r.is_cancelled = false THEN r.total_amount ELSE 0 END), 0) as total_sales
-            FROM pos_shifts ps
-            LEFT JOIN receipts r ON ps.id = r.shift_id
-            WHERE ps.end_time IS NULL
-            GROUP BY ps.id
+            CREATE INDEX IF NOT EXISTS idx_pos_shifts_user ON pos_shifts(user_id);
+            CREATE INDEX IF NOT EXISTS idx_receipts_shift ON receipts(shift_id);
+            CREATE INDEX IF NOT EXISTS idx_receipts_user ON receipts(user_id);
+            CREATE INDEX IF NOT EXISTS idx_receipts_time ON receipts(sale_time);
+            CREATE INDEX IF NOT EXISTS idx_receipts_cancelled ON receipts(is_cancelled);
+            CREATE INDEX IF NOT EXISTS idx_sale_items_receipt ON sale_items(receipt_id);
+            CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
+            CREATE INDEX IF NOT EXISTS idx_inventory_product_quantity ON inventory(product_id, quantity) WHERE quantity > 0;
+            CREATE INDEX IF NOT EXISTS idx_inventory_received_date ON inventory(received_date);
+            CREATE INDEX IF NOT EXISTS idx_sale_items_analytics ON sale_items(product_id, quantity, sale_price, cost_price);
         `);
 
-        // Products with stock
-        await pool.query(`
-            CREATE OR REPLACE VIEW products_with_stock AS
-            SELECT 
-                p.*,
-                COALESCE(SUM(i.quantity), 0) as total_quantity,
-                MIN(i.received_date) as first_received,
-                MAX(i.received_date) as last_received
-            FROM products p
-            LEFT JOIN inventory i ON p.id = i.product_id
-            GROUP BY p.id
-        `);
-
-        // Inventory sales view (for analytics)
+        // Создаем VIEWS (представления)
         await pool.query(`
             CREATE OR REPLACE VIEW inventory_sales AS
             SELECT 
@@ -298,20 +266,28 @@ async function initDB() {
             WHERE r.is_cancelled = false
         `);
 
-        // ==================== PERFORMANCE INDEXES ====================
-        
         await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_inventory_product_quantity 
-            ON inventory(product_id, quantity) WHERE quantity > 0
+            CREATE OR REPLACE VIEW products_with_stock AS
+            SELECT 
+                p.*,
+                COALESCE(SUM(i.quantity), 0) as total_quantity,
+                MIN(i.received_date) as first_received,
+                MAX(i.received_date) as last_received
+            FROM products p
+            LEFT JOIN inventory i ON p.id = i.product_id
+            GROUP BY p.id
         `);
-        
+
         await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_inventory_received_date ON inventory(received_date)
-        `);
-        
-        await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_sale_items_analytics 
-            ON sale_items(product_id, quantity, sale_price, cost_price)
+            CREATE OR REPLACE VIEW active_shifts_with_stats AS
+            SELECT 
+                ps.*,
+                COUNT(r.id) as receipts_count,
+                COALESCE(SUM(CASE WHEN r.is_cancelled = false THEN r.total_amount ELSE 0 END), 0) as total_sales
+            FROM pos_shifts ps
+            LEFT JOIN receipts r ON ps.id = r.shift_id
+            WHERE ps.end_time IS NULL
+            GROUP BY ps.id
         `);
 
         // Create default admin user if doesn't exist
