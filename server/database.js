@@ -251,24 +251,47 @@ async function initDB() {
 await pool.query(`DROP TABLE IF EXISTS inventory_sales CASCADE;`);
 
 // Create view for inventory sales (replaces old table)
-await pool.query(`
-    CREATE OR REPLACE VIEW inventory_sales AS
-    SELECT 
-        si.id,
-        si.product_id,
-        si.quantity,
-        si.sale_price,
-        si.cost_price,
-        si.currency,
-        r.sale_time as sale_date,
-        r.shift_id,
-        r.user_id,
-        r.is_cancelled
-    FROM sale_items si
-    JOIN receipts r ON si.receipt_id = r.id
-    WHERE r.is_cancelled = false;
-`);
+        await pool.query(`
+            CREATE OR REPLACE VIEW inventory_sales AS
+            SELECT 
+                si.id,
+                si.product_id,
+                si.quantity,
+                si.sale_price,
+                si.cost_price,
+                si.currency,
+                r.sale_time as sale_date,
+                r.shift_id,
+                r.user_id,
+                r.is_cancelled
+            FROM sale_items si
+            JOIN receipts r ON si.receipt_id = r.id
+            WHERE r.is_cancelled = false;
+        `);
 
+        // 🩹 Fix: ensure sale_price exists in inventory (for compatibility)
+        -- This adds the column if it doesn't exist (safe to run multiple times)
+        await pool.query(`
+            ALTER TABLE inventory
+            ADD COLUMN IF NOT EXISTS sale_price DECIMAL(10,2);
+        `);
+
+        // Create view for products with stock
+        await pool.query(`
+            CREATE OR REPLACE VIEW products_with_stock AS
+            SELECT 
+                p.*,
+                COALESCE(SUM(i.quantity), 0) as total_quantity,
+                MIN(i.received_date) as first_received,
+                MAX(i.received_date) as last_received,
+                AVG(i.sale_price) as avg_sale_price
+            FROM products p
+            LEFT JOIN inventory i ON p.id = i.product_id
+            GROUP BY p.id;
+        `);
+
+        console.log('✅ Database views created successfully');
+        
         // View for products with stock
         await pool.query(`
             CREATE OR REPLACE VIEW products_with_stock AS
