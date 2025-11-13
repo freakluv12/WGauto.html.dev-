@@ -7,6 +7,7 @@ const Warehouse = {
     subcategories: [],
     products: [],
     inventory: [],
+    receiveCart: [], // Корзина для оприходования
 
     init() {
         this.createModals();
@@ -19,7 +20,6 @@ const Warehouse = {
             <div class="warehouse-action-bar">
                 <button class="btn" onclick="Warehouse.showAction('stock')">📦 Склад</button>
                 <button class="btn" onclick="Warehouse.showAction('receive')">📥 Оприходование</button>
-                <button class="btn" onclick="Warehouse.showAction('sell')">💰 Продажа</button>
                 <button class="btn" onclick="Warehouse.showAction('analytics')">📊 Аналитика</button>
             </div>
             <div id="warehouseMainContent"></div>
@@ -99,6 +99,7 @@ const Warehouse = {
                                 <th>Источник</th>
                                 <th>Количество</th>
                                 <th>Цена закупки</th>
+                                <th>Цена продажи</th>
                                 <th>Место</th>
                                 <th>Дата поступления</th>
                                 <th>На складе</th>
@@ -152,6 +153,33 @@ const Warehouse = {
                 </div>
             </div>
         `;
+
+        // Quick Add Product Modal для оприходования
+        modalsContainer.innerHTML += Utils.createModal('quickAddProductModal', 'Быстрое добавление товара', `
+            <div class="form-group">
+                <label>Категория</label>
+                <select id="quickCategorySelect" onchange="Warehouse.loadQuickSubcategories()">
+                    <option value="">Выберите категорию</option>
+                </select>
+                <button class="btn" style="margin-top: 5px;" onclick="Warehouse.showAddCategoryFromQuick()">+ Новая категория</button>
+            </div>
+            <div class="form-group">
+                <label>Подкатегория</label>
+                <select id="quickSubcategorySelect">
+                    <option value="">Выберите подкатегорию</option>
+                </select>
+                <button class="btn" style="margin-top: 5px;" onclick="Warehouse.showAddSubcategoryFromQuick()">+ Новая подкатегория</button>
+            </div>
+            <div class="form-group">
+                <label>Название товара</label>
+                <input type="text" id="quickProductName" required>
+            </div>
+            <div class="form-group">
+                <label>SKU / Артикул</label>
+                <input type="text" id="quickProductSKU">
+            </div>
+            <button class="btn" onclick="Warehouse.quickAddProduct()">Добавить товар</button>
+        `);
     },
 
     showAction(action) {
@@ -160,16 +188,310 @@ const Warehouse = {
                 this.loadCategories();
                 break;
             case 'receive':
-                alert('Функция оприходования в разработке');
-                break;
-            case 'sell':
-                alert('Функция продажи в разработке');
+                this.showReceiveInterface();
                 break;
             case 'analytics':
                 this.showAnalyticsModal();
                 break;
         }
     },
+
+    // ==================== ОПРИХОДОВАНИЕ ====================
+    
+    async showReceiveInterface() {
+        this.receiveCart = [];
+        
+        const html = `
+            <div style="margin-bottom: 20px;">
+                <h3>Оприходование товара</h3>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <div class="form-group">
+                        <label>Поиск товара</label>
+                        <input type="text" id="receiveSearch" placeholder="Введите название или SKU..." 
+                               oninput="Warehouse.searchProductsForReceive()">
+                    </div>
+                    
+                    <div id="receiveSearchResults" style="margin-top: 20px;">
+                        <p style="color: #888;">Введите запрос для поиска товаров...</p>
+                    </div>
+                    
+                    <button class="btn" onclick="Warehouse.showQuickAddProductModal()" style="margin-top: 15px;">
+                        + Добавить новый товар
+                    </button>
+                </div>
+                
+                <div>
+                    <h4>Товары для оприходования</h4>
+                    <div id="receiveCartContent"></div>
+                    
+                    <button class="btn" onclick="Warehouse.completeReceive()" 
+                            style="width: 100%; margin-top: 20px; background: #4CAF50;">
+                        Оприходовать
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('warehouseMainContent').innerHTML = html;
+        this.renderReceiveCart();
+    },
+
+    async searchProductsForReceive() {
+        const query = document.getElementById('receiveSearch').value.trim();
+        const resultsDiv = document.getElementById('receiveSearchResults');
+        
+        if (query.length < 2) {
+            resultsDiv.innerHTML = '<p style="color: #888;">Введите минимум 2 символа...</p>';
+            return;
+        }
+
+        try {
+            const response = await API.call(`/api/warehouse/products/search/all?q=${encodeURIComponent(query)}`);
+            if (!response) return;
+            
+            const products = await response.json();
+            
+            if (products.length === 0) {
+                resultsDiv.innerHTML = '<p style="color: #888;">Товары не найдены</p>';
+                return;
+            }
+
+            let html = '<div class="categories-grid">';
+            products.forEach(prod => {
+                html += `
+                    <div class="category-card" onclick='Warehouse.addToReceiveCart(${JSON.stringify(prod).replace(/'/g, "&apos;")})' 
+                         style="cursor: pointer;">
+                        <div class="category-icon">${prod.category_icon || '📦'}</div>
+                        <div class="category-name">${prod.name}</div>
+                        <div class="category-desc">${prod.category_name} › ${prod.subcategory_name}</div>
+                        <div style="margin-top: 5px; color: #888; font-size: 12px;">Остаток: ${prod.total_quantity || 0}</div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            
+            resultsDiv.innerHTML = html;
+            
+        } catch (error) {
+            console.error('Search error:', error);
+        }
+    },
+
+    addToReceiveCart(product) {
+        const existing = this.receiveCart.find(item => item.id === product.id);
+        
+        if (existing) {
+            alert('Товар уже добавлен в список оприходования');
+            return;
+        }
+
+        this.receiveCart.push({
+            ...product,
+            receiveQuantity: 1,
+            receivePurchasePrice: 0,
+            receiveSalePrice: 0,
+            receiveCurrency: 'GEL',
+            receiveLocation: ''
+        });
+
+        this.renderReceiveCart();
+    },
+
+    removeFromReceiveCart(productId) {
+        this.receiveCart = this.receiveCart.filter(item => item.id !== productId);
+        this.renderReceiveCart();
+    },
+
+    updateReceiveItem(productId, field, value) {
+        const item = this.receiveCart.find(i => i.id === productId);
+        if (item) {
+            item[field] = value;
+        }
+    },
+
+    renderReceiveCart() {
+        const cartDiv = document.getElementById('receiveCartContent');
+        
+        if (!cartDiv) return;
+
+        if (this.receiveCart.length === 0) {
+            cartDiv.innerHTML = '<p style="color: #888;">Список пуст</p>';
+            return;
+        }
+
+        let html = '<table class="table"><thead><tr><th>Товар</th><th>Кол-во</th><th>Цена закупки</th><th>Цена продажи</th><th>Место</th><th></th></tr></thead><tbody>';
+
+        this.receiveCart.forEach(item => {
+            html += `
+                <tr>
+                    <td>${item.name}</td>
+                    <td>
+                        <input type="number" value="${item.receiveQuantity}" min="1" 
+                               style="width: 60px; padding: 5px;"
+                               onchange="Warehouse.updateReceiveItem(${item.id}, 'receiveQuantity', parseInt(this.value))">
+                    </td>
+                    <td>
+                        <input type="number" value="${item.receivePurchasePrice}" step="0.01" 
+                               style="width: 80px; padding: 5px;" placeholder="0.00"
+                               onchange="Warehouse.updateReceiveItem(${item.id}, 'receivePurchasePrice', parseFloat(this.value))">
+                    </td>
+                    <td>
+                        <input type="number" value="${item.receiveSalePrice}" step="0.01" 
+                               style="width: 80px; padding: 5px;" placeholder="0.00"
+                               onchange="Warehouse.updateReceiveItem(${item.id}, 'receiveSalePrice', parseFloat(this.value))">
+                    </td>
+                    <td>
+                        <input type="text" value="${item.receiveLocation}" 
+                               style="width: 100px; padding: 5px;" placeholder="A1"
+                               onchange="Warehouse.updateReceiveItem(${item.id}, 'receiveLocation', this.value)">
+                    </td>
+                    <td>
+                        <button class="btn" onclick="Warehouse.removeFromReceiveCart(${item.id})" 
+                                style="background: #f44336; padding: 5px 10px;">✕</button>
+                    </td>
+                </tr>
+            `;
+        });
+
+        html += '</tbody></table>';
+        cartDiv.innerHTML = html;
+    },
+
+    async completeReceive() {
+        if (this.receiveCart.length === 0) {
+            alert('Добавьте товары для оприходования');
+            return;
+        }
+
+        const invalidItems = this.receiveCart.filter(item => !item.receiveQuantity || item.receiveQuantity <= 0);
+        if (invalidItems.length > 0) {
+            alert('Укажите корректное количество для всех товаров');
+            return;
+        }
+
+        if (!confirm(`Оприходовать ${this.receiveCart.length} товаров?`)) {
+            return;
+        }
+
+        try {
+            for (const item of this.receiveCart) {
+                const data = {
+                    product_id: item.id,
+                    source_type: 'purchased',
+                    quantity: item.receiveQuantity,
+                    purchase_price: item.receivePurchasePrice || null,
+                    sale_price: item.receiveSalePrice || null,
+                    currency: item.receiveCurrency,
+                    location: item.receiveLocation
+                };
+
+                const response = await API.call('/api/warehouse/inventory/receive', {
+                    method: 'POST',
+                    body: JSON.stringify(data)
+                });
+
+                if (!response || !response.ok) {
+                    throw new Error(`Ошибка при оприходовании ${item.name}`);
+                }
+            }
+
+            alert('Оприходование успешно завершено!');
+            this.receiveCart = [];
+            this.showReceiveInterface();
+
+        } catch (error) {
+            console.error('Complete receive error:', error);
+            alert('Ошибка: ' + error.message);
+        }
+    },
+
+    // Quick Add Product
+    async showQuickAddProductModal() {
+        await this.loadCategories();
+        
+        const select = document.getElementById('quickCategorySelect');
+        if (select) {
+            select.innerHTML = '<option value="">Выберите категорию</option>' +
+                this.categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
+        }
+        
+        Utils.showModal('quickAddProductModal');
+    },
+
+    async loadQuickSubcategories() {
+        const categoryId = document.getElementById('quickCategorySelect').value;
+        const select = document.getElementById('quickSubcategorySelect');
+        
+        if (!categoryId) {
+            select.innerHTML = '<option value="">Выберите подкатегорию</option>';
+            return;
+        }
+
+        try {
+            const response = await API.call(`/api/warehouse/subcategories/${categoryId}`);
+            if (!response) return;
+            
+            const subcategories = await response.json();
+            select.innerHTML = '<option value="">Выберите подкатегорию</option>' +
+                subcategories.map(sub => `<option value="${sub.id}">${sub.name}</option>`).join('');
+        } catch (error) {
+            console.error('Load subcategories error:', error);
+        }
+    },
+
+    async quickAddProduct() {
+        const subcategoryId = document.getElementById('quickSubcategorySelect').value;
+        const name = document.getElementById('quickProductName').value;
+        const sku = document.getElementById('quickProductSKU').value;
+
+        if (!subcategoryId || !name) {
+            alert('Выберите подкатегорию и введите название');
+            return;
+        }
+
+        try {
+            const response = await API.call('/api/warehouse/products', {
+                method: 'POST',
+                body: JSON.stringify({
+                    subcategory_id: subcategoryId,
+                    name: name,
+                    sku: sku,
+                    min_stock_level: 0
+                })
+            });
+
+            if (response && response.ok) {
+                const product = await response.json();
+                Utils.closeModal('quickAddProductModal');
+                Utils.clearForm('quickAddProductModal');
+                
+                this.addToReceiveCart(product);
+                document.getElementById('receiveSearch').value = '';
+                document.getElementById('receiveSearchResults').innerHTML = '<p style="color: #888;">Товар добавлен!</p>';
+            }
+        } catch (error) {
+            alert('Ошибка: ' + error.message);
+        }
+    },
+
+    showAddCategoryFromQuick() {
+        Utils.showModal('addCategoryModal');
+    },
+
+    showAddSubcategoryFromQuick() {
+        const categoryId = document.getElementById('quickCategorySelect').value;
+        if (!categoryId) {
+            alert('Сначала выберите категорию');
+            return;
+        }
+        this.currentCategoryId = categoryId;
+        Utils.showModal('addSubcategoryModal');
+    },
+
+    // ==================== СКЛАД ====================
 
     async loadCategories() {
         try {
@@ -239,7 +561,11 @@ const Warehouse = {
             if (response && response.ok) {
                 Utils.closeModal('addCategoryModal');
                 Utils.clearForm('addCategoryModal');
-                this.loadCategories();
+                await this.loadCategories();
+                
+                if (document.getElementById('quickCategorySelect')) {
+                    await this.showQuickAddProductModal();
+                }
             } else {
                 alert('Failed to add category');
             }
@@ -317,7 +643,11 @@ const Warehouse = {
             if (response && response.ok) {
                 Utils.closeModal('addSubcategoryModal');
                 Utils.clearForm('addSubcategoryModal');
-                this.loadSubcategories(this.currentCategoryId);
+                await this.loadSubcategories(this.currentCategoryId);
+                
+                if (document.getElementById('quickSubcategorySelect')) {
+                    await this.loadQuickSubcategories();
+                }
             } else {
                 alert('Failed to add subcategory');
             }
@@ -440,110 +770,4 @@ const Warehouse = {
             const product = this.products.find(p => p.id === productId);
             
             let inventoryHTML = '';
-            if (this.inventory.length === 0) {
-                inventoryHTML = '<tr><td colspan="6">Нет остатков на складе</td></tr>';
-            } else {
-                inventoryHTML = this.inventory.map(inv => `
-                    <tr>
-                        <td>${inv.source_name}</td>
-                        <td>${inv.quantity}</td>
-                        <td>${inv.purchase_price ? Utils.getCurrencySymbol(inv.currency) + inv.purchase_price : 'N/A'}</td>
-                        <td>${inv.location || 'N/A'}</td>
-                        <td>${Utils.formatDate(inv.received_date)}</td>
-                        <td>${inv.days_in_storage} дней</td>
-                    </tr>
-                `).join('');
-            }
-            
-            document.getElementById('productDetailsName').textContent = product.name;
-            document.getElementById('productDetailsSKU').textContent = product.sku || 'N/A';
-            document.getElementById('productDetailsTotal').textContent = product.total_quantity || 0;
-            
-            document.querySelector('#productInventoryTable tbody').innerHTML = inventoryHTML;
-            
-            Utils.showModal('productDetailsModal');
-        } catch (error) {
-            console.error('Show product details error:', error);
-        }
-    },
-
-    showAnalyticsModal() {
-        Utils.showModal('analyticsModal');
-        this.loadAnalytics();
-    },
-
-    async loadAnalytics() {
-        const startDate = document.getElementById('analyticsStartDate').value;
-        const endDate = document.getElementById('analyticsEndDate').value;
-        
-        let url = '/api/warehouse/analytics?';
-        if (startDate) url += `start_date=${startDate}&`;
-        if (endDate) url += `end_date=${endDate}`;
-        
-        try {
-            const response = await API.call(url);
-            if (!response) return;
-            
-            const data = await response.json();
-            
-            let itemsHTML = '';
-            if (data.items.length === 0) {
-                itemsHTML = '<tr><td colspan="7">No sales data for selected period</td></tr>';
-            } else {
-                itemsHTML = data.items.map(item => {
-                    const profitMargin = parseFloat(item.profit_margin_percent || 0).toFixed(2);
-                    return `
-                        <tr>
-                            <td>${item.product_name}</td>
-                            <td>${item.category_name} > ${item.subcategory_name}</td>
-                            <td>${item.total_sold}</td>
-                            <td>${Utils.getCurrencySymbol(item.currency)}${parseFloat(item.total_revenue || 0).toFixed(2)}</td>
-                            <td>${Utils.getCurrencySymbol(item.currency)}${parseFloat(item.total_cost || 0).toFixed(2)}</td>
-                            <td class="${parseFloat(item.net_profit) >= 0 ? 'positive' : 'negative'}">
-                                ${Utils.getCurrencySymbol(item.currency)}${parseFloat(item.net_profit || 0).toFixed(2)}
-                            </td>
-                            <td>${profitMargin}%</td>
-                        </tr>
-                    `;
-                }).join('');
-            }
-            
-            document.querySelector('#analyticsTable tbody').innerHTML = itemsHTML;
-            
-            let totalsHTML = '';
-            if (data.totals && data.totals.length > 0) {
-                data.totals.forEach(total => {
-                    totalsHTML += `
-                        <div class="profit-card">
-                            <div class="currency-label">${total.currency} Всего продано</div>
-                            <div class="amount">${total.total_sold} шт</div>
-                        </div>
-                        <div class="profit-card">
-                            <div class="currency-label">${total.currency} Оборот</div>
-                            <div class="amount positive">${Utils.getCurrencySymbol(total.currency)}${parseFloat(total.total_revenue).toFixed(2)}</div>
-                        </div>
-                        <div class="profit-card">
-                            <div class="currency-label">${total.currency} Себестоимость</div>
-                            <div class="amount">${Utils.getCurrencySymbol(total.currency)}${parseFloat(total.total_cost).toFixed(2)}</div>
-                        </div>
-                        <div class="profit-card">
-                            <div class="currency-label">${total.currency} Чистая прибыль</div>
-                            <div class="amount ${parseFloat(total.net_profit) >= 0 ? 'positive' : 'negative'}">
-                                ${Utils.getCurrencySymbol(total.currency)}${parseFloat(total.net_profit).toFixed(2)}
-                            </div>
-                        </div>
-                        <div class="profit-card">
-                            <div class="currency-label">${total.currency} Рентабельность</div>
-                            <div class="amount">${total.profit_margin_percent}%</div>
-                        </div>
-                    `;
-                });
-            }
-            
-            document.getElementById('analyticsTotals').innerHTML = totalsHTML;
-            
-        } catch (error) {
-            console.error('Analytics error:', error);
-        }
-    }
-};
+            if (this.inventory
