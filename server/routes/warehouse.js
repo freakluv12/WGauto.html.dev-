@@ -1,10 +1,10 @@
+// ==================== server/routes/warehouse.js ====================
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../database');
 const { authenticateToken } = require('../middleware');
 
-// ==================== CATEGORIES ====================
-
+// Categories
 router.get('/categories', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.role === 'ADMIN' ? null : req.user.id;
@@ -41,8 +41,7 @@ router.post('/categories', authenticateToken, async (req, res) => {
     }
 });
 
-// ==================== SUBCATEGORIES ====================
-
+// Subcategories
 router.get('/subcategories/:categoryId', authenticateToken, async (req, res) => {
     try {
         const categoryId = req.params.categoryId;
@@ -77,8 +76,7 @@ router.post('/subcategories', authenticateToken, async (req, res) => {
     }
 });
 
-// ==================== PRODUCTS ====================
-
+// Products
 router.get('/products/:subcategoryId', authenticateToken, async (req, res) => {
     try {
         const subcategoryId = req.params.subcategoryId;
@@ -102,36 +100,6 @@ router.get('/products/:subcategoryId', authenticateToken, async (req, res) => {
     }
 });
 
-// Search products for receiving
-router.get('/products/search', authenticateToken, async (req, res) => {
-    try {
-        const query = req.query.q;
-        
-        if (!query || query.length < 2) {
-            return res.json([]);
-        }
-        
-        const searchPattern = `%${query}%`;
-        const result = await pool.query(`
-            SELECT 
-                p.*,
-                COALESCE(SUM(i.quantity), 0) as total_quantity
-            FROM products p
-            LEFT JOIN inventory i ON p.id = i.product_id
-            WHERE (LOWER(p.name) LIKE LOWER($1) OR LOWER(p.sku) LIKE LOWER($1))
-            AND p.user_id = $2
-            GROUP BY p.id
-            ORDER BY p.name
-            LIMIT 20
-        `, [searchPattern, req.user.id]);
-        
-        res.json(result.rows);
-    } catch (error) {
-        console.error('Search products error:', error);
-        res.status(500).json({ error: 'Failed to search products' });
-    }
-});
-
 router.post('/products', authenticateToken, async (req, res) => {
     try {
         const { subcategory_id, name, description, sku, min_stock_level } = req.body;
@@ -152,8 +120,7 @@ router.post('/products', authenticateToken, async (req, res) => {
     }
 });
 
-// ==================== INVENTORY ====================
-
+// Inventory
 router.get('/inventory/:productId', authenticateToken, async (req, res) => {
     try {
         const productId = req.params.productId;
@@ -181,16 +148,16 @@ router.get('/inventory/:productId', authenticateToken, async (req, res) => {
 
 router.post('/inventory/receive', authenticateToken, async (req, res) => {
     try {
-        const { product_id, source_type, source_id, quantity, purchase_price, sale_price, currency, location } = req.body;
+        const { product_id, source_type, source_id, quantity, purchase_price, currency, location } = req.body;
         
         if (!product_id || !source_type || !quantity || quantity <= 0) {
             return res.status(400).json({ error: 'Product, source type, and positive quantity are required' });
         }
         
         const result = await pool.query(
-            `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, sale_price, currency, location, user_id) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-            [product_id, source_type, source_id || null, quantity, purchase_price || null, sale_price || null, currency || 'GEL', location || '', req.user.id]
+            `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, currency, location, user_id) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+            [product_id, source_type, source_id || null, quantity, purchase_price || null, currency || 'USD', location || '', req.user.id]
         );
         
         res.json(result.rows[0]);
@@ -200,58 +167,7 @@ router.post('/inventory/receive', authenticateToken, async (req, res) => {
     }
 });
 
-// Bulk receive inventory
-router.post('/inventory/receive-bulk', authenticateToken, async (req, res) => {
-    const client = await pool.connect();
-    
-    try {
-        const { items } = req.body;
-        
-        if (!items || !Array.isArray(items) || items.length === 0) {
-            return res.status(400).json({ error: 'Items array is required' });
-        }
-        
-        await client.query('BEGIN');
-        
-        const results = [];
-        for (const item of items) {
-            if (!item.product_id || !item.quantity || item.quantity <= 0) {
-                await client.query('ROLLBACK');
-                return res.status(400).json({ error: 'Invalid item data' });
-            }
-            
-            const result = await client.query(
-                `INSERT INTO inventory (product_id, source_type, quantity, purchase_price, sale_price, currency, location, user_id) 
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-                [
-                    item.product_id, 
-                    'purchased', 
-                    item.quantity, 
-                    item.purchase_price || null, 
-                    item.sale_price || null,
-                    item.currency || 'GEL', 
-                    item.location || '', 
-                    req.user.id
-                ]
-            );
-            
-            results.push(result.rows[0]);
-        }
-        
-        await client.query('COMMIT');
-        res.json({ success: true, items: results });
-        
-    } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Bulk receive error:', error);
-        res.status(500).json({ error: 'Failed to receive inventory' });
-    } finally {
-        client.release();
-    }
-});
-
-// ==================== ANALYTICS ====================
-
+// Analytics
 router.get('/analytics', authenticateToken, async (req, res) => {
     try {
         const { start_date, end_date, category_id, subcategory_id } = req.query;
@@ -263,21 +179,20 @@ router.get('/analytics', authenticateToken, async (req, res) => {
                 p.name as product_name,
                 c.name as category_name,
                 sc.name as subcategory_name,
-                COALESCE(SUM(si.quantity), 0) as total_sold,
-                COALESCE(SUM(si.sale_price * si.quantity), 0) as total_revenue,
-                COALESCE(SUM(si.cost_price * si.quantity), 0) as total_cost,
-                COALESCE(SUM(si.sale_price * si.quantity) - SUM(si.cost_price * si.quantity), 0) as net_profit,
+                COALESCE(SUM(s.quantity), 0) as total_sold,
+                COALESCE(SUM(s.sale_price * s.quantity), 0) as total_revenue,
+                COALESCE(SUM(s.cost_price * s.quantity), 0) as total_cost,
+                COALESCE(SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity), 0) as net_profit,
                 CASE 
-                    WHEN SUM(si.cost_price * si.quantity) > 0 
-                    THEN ((SUM(si.sale_price * si.quantity) - SUM(si.cost_price * si.quantity)) / SUM(si.cost_price * si.quantity) * 100)
+                    WHEN SUM(s.cost_price * s.quantity) > 0 
+                    THEN ((SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity)) / SUM(s.cost_price * s.quantity) * 100)
                     ELSE 0 
                 END as profit_margin_percent,
-                si.currency
+                s.currency
             FROM products p
             JOIN subcategories sc ON p.subcategory_id = sc.id
             JOIN categories c ON sc.category_id = c.id
-            LEFT JOIN sale_items si ON p.id = si.product_id
-            LEFT JOIN receipts r ON si.receipt_id = r.id AND r.is_cancelled = false
+            LEFT JOIN inventory_sales s ON p.id = s.product_id
         `;
         
         let conditions = [];
@@ -292,13 +207,13 @@ router.get('/analytics', authenticateToken, async (req, res) => {
         
         if (start_date) {
             paramCount++;
-            conditions.push(`r.sale_time >= $${paramCount}`);
+            conditions.push(`s.sale_date >= $${paramCount}`);
             params.push(start_date);
         }
         
         if (end_date) {
             paramCount++;
-            conditions.push(`r.sale_time <= $${paramCount}`);
+            conditions.push(`s.sale_date <= $${paramCount}`);
             params.push(end_date);
         }
         
@@ -318,12 +233,12 @@ router.get('/analytics', authenticateToken, async (req, res) => {
             query += ' WHERE ' + conditions.join(' AND ');
         }
         
-        query += ' GROUP BY p.id, p.name, c.name, sc.name, si.currency HAVING SUM(si.quantity) > 0 ORDER BY total_revenue DESC';
+        query += ' GROUP BY p.id, p.name, c.name, sc.name, s.currency ORDER BY total_revenue DESC';
         
         const result = await pool.query(query, params);
         
         const totals = result.rows.reduce((acc, row) => {
-            const curr = row.currency || 'GEL';
+            const curr = row.currency || 'USD';
             if (!acc[curr]) {
                 acc[curr] = {
                     currency: curr,
