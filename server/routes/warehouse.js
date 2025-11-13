@@ -75,7 +75,7 @@ router.post('/subcategories', authenticateToken, async (req, res) => {
     }
 });
 
-// Products
+// Products - УЛУЧШЕННЫЙ: возвращает цену из inventory
 router.get('/products/:subcategoryId', authenticateToken, async (req, res) => {
     try {
         const subcategoryId = req.params.subcategoryId;
@@ -84,7 +84,8 @@ router.get('/products/:subcategoryId', authenticateToken, async (req, res) => {
             SELECT 
                 p.*,
                 COALESCE(SUM(i.quantity), 0) as total_quantity,
-                MIN(i.received_date) as first_received
+                MIN(i.received_date) as first_received,
+                (SELECT sale_price FROM inventory WHERE product_id = p.id AND sale_price > 0 LIMIT 1) as default_sale_price
             FROM products p
             LEFT JOIN inventory i ON p.id = i.product_id
             WHERE p.subcategory_id = $1
@@ -119,7 +120,7 @@ router.post('/products', authenticateToken, async (req, res) => {
     }
 });
 
-// Inventory
+// Inventory - возвращает с sale_price
 router.get('/inventory/:productId', authenticateToken, async (req, res) => {
     try {
         const productId = req.params.productId;
@@ -129,9 +130,7 @@ router.get('/inventory/:productId', authenticateToken, async (req, res) => {
                 i.*,
                 CASE 
                     WHEN i.source_type = 'dismantled' THEN c.brand || ' ' || c.model || ' ' || COALESCE(c.year::text, '')
-                    WHEN i.source_type = 'purchased' THEN 'Закупка'
-                    WHEN i.source_type = 'returned' THEN 'Возврат'
-                    ELSE 'Неизвестно'
+                    ELSE 'Закупка'
                 END as source_name,
                 CURRENT_DATE - i.received_date as days_in_storage
             FROM inventory i
@@ -147,7 +146,35 @@ router.get('/inventory/:productId', authenticateToken, async (req, res) => {
     }
 });
 
-// Receive inventory (Оприходование)
+// НОВЫЙ роут: получить inventory по query параметру (для POS)
+router.get('/inventory', authenticateToken, async (req, res) => {
+    try {
+        const { product_id } = req.query;
+        
+        if (!product_id) {
+            return res.status(400).json({ error: 'product_id is required' });
+        }
+        
+        const result = await pool.query(`
+            SELECT 
+                i.*,
+                CASE 
+                    WHEN i.source_type = 'dismantled' THEN c.brand || ' ' || c.model || ' ' || COALESCE(c.year::text, '')
+                    ELSE 'Закупка'
+                END as source_name
+            FROM inventory i
+            LEFT JOIN cars c ON i.source_type = 'dismantled' AND i.source_id = c.id
+            WHERE i.product_id = $1 AND i.quantity > 0
+            ORDER BY i.received_date
+        `, [product_id]);
+        
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Get inventory error:', error);
+        res.status(500).json({ error: 'Failed to fetch inventory' });
+    }
+});
+
 router.post('/inventory/receive', authenticateToken, async (req, res) => {
     try {
         const { product_id, source_type, source_id, quantity, purchase_price, sale_price, currency, location } = req.body;
@@ -156,86 +183,16 @@ router.post('/inventory/receive', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'Product, source type, and positive quantity are required' });
         }
         
-        // Validate source_type
-        const validSourceTypes = ['purchased', 'dismantled', 'returned'];
-        if (!validSourceTypes.includes(source_type)) {
-            return res.status(400).json({ error: 'Invalid source type' });
-        }
-        
         const result = await pool.query(
             `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, sale_price, currency, location, user_id) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-            [
-                product_id, 
-                source_type, 
-                source_id || null, 
-                quantity, 
-                purchase_price || null, 
-                sale_price || null,
-                currency || 'GEL', 
-                location || '', 
-                req.user.id
-            ]
+            [product_id, source_type, source_id || null, quantity, purchase_price || null, sale_price || null, currency || 'USD', location || '', req.user.id]
         );
         
         res.json(result.rows[0]);
     } catch (error) {
         console.error('Receive inventory error:', error);
         res.status(500).json({ error: 'Failed to receive inventory' });
-    }
-});
-
-// Update inventory quantity (manual adjustment)
-router.patch('/inventory/:id', authenticateToken, async (req, res) => {
-    try {
-        const inventoryId = req.params.id;
-        const { quantity, location, sale_price } = req.body;
-        
-        if (quantity !== undefined && quantity < 0) {
-            return res.status(400).json({ error: 'Quantity cannot be negative' });
-        }
-        
-        let updateFields = [];
-        let updateValues = [];
-        let paramCount = 1;
-        
-        if (quantity !== undefined) {
-            updateFields.push(`quantity = $${paramCount}`);
-            updateValues.push(quantity);
-            paramCount++;
-        }
-        
-        if (location !== undefined) {
-            updateFields.push(`location = $${paramCount}`);
-            updateValues.push(location);
-            paramCount++;
-        }
-        
-        if (sale_price !== undefined) {
-            updateFields.push(`sale_price = $${paramCount}`);
-            updateValues.push(sale_price);
-            paramCount++;
-        }
-        
-        if (updateFields.length === 0) {
-            return res.status(400).json({ error: 'No fields to update' });
-        }
-        
-        updateValues.push(inventoryId);
-        
-        const result = await pool.query(
-            `UPDATE inventory SET ${updateFields.join(', ')} WHERE id = $${paramCount} RETURNING *`,
-            updateValues
-        );
-        
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Inventory record not found' });
-        }
-        
-        res.json(result.rows[0]);
-    } catch (error) {
-        console.error('Update inventory error:', error);
-        res.status(500).json({ error: 'Failed to update inventory' });
     }
 });
 
@@ -310,7 +267,7 @@ router.get('/analytics', authenticateToken, async (req, res) => {
         const result = await pool.query(query, params);
         
         const totals = result.rows.reduce((acc, row) => {
-            const curr = row.currency || 'GEL';
+            const curr = row.currency || 'USD';
             if (!acc[curr]) {
                 acc[curr] = {
                     currency: curr,
@@ -342,36 +299,6 @@ router.get('/analytics', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Analytics error:', error);
         res.status(500).json({ error: 'Failed to fetch analytics' });
-    }
-});
-
-// Get low stock products
-router.get('/low-stock', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.role === 'ADMIN' ? null : req.user.id;
-        const userFilter = userId ? 'AND p.user_id = $1' : '';
-        const params = userId ? [userId] : [];
-        
-        const result = await pool.query(`
-            SELECT 
-                p.*,
-                c.name as category_name,
-                sc.name as subcategory_name,
-                COALESCE(SUM(i.quantity), 0) as total_quantity
-            FROM products p
-            JOIN subcategories sc ON p.subcategory_id = sc.id
-            JOIN categories c ON sc.category_id = c.id
-            LEFT JOIN inventory i ON p.id = i.product_id
-            WHERE 1=1 ${userFilter}
-            GROUP BY p.id, c.name, sc.name
-            HAVING COALESCE(SUM(i.quantity), 0) <= p.min_stock_level
-            ORDER BY total_quantity ASC
-        `, params);
-        
-        res.json(result.rows);
-    } catch (error) {
-        console.error('Get low stock error:', error);
-        res.status(500).json({ error: 'Failed to fetch low stock products' });
     }
 });
 
