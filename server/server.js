@@ -1,12 +1,12 @@
 // server/server.js
 const express = require('express');
-const path = require('path'); // ← Добавить!
+const path = require('path');
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../public'))); // ← Исправить!
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Database initialization
 const { initDB } = require('./database');
@@ -26,6 +26,7 @@ const carsRoutes = require('./routes/cars');
 const rentalsRoutes = require('./routes/rentals');
 const warehouseRoutes = require('./routes/warehouse');
 const adminRoutes = require('./routes/admin');
+const posRoutes = require('./routes/pos'); // НОВЫЙ ИМПОРТ
 
 // Use routes
 app.use('/api/auth', authRoutes);
@@ -33,6 +34,7 @@ app.use('/api/cars', carsRoutes);
 app.use('/api/rentals', rentalsRoutes);
 app.use('/api/warehouse', warehouseRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/pos', posRoutes); // НОВЫЙ РОУТ
 
 // Dashboard stats endpoint
 app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
@@ -98,7 +100,6 @@ app.get('/', (req, res) => {
 
 // Fallback для SPA (если используете клиентский роутинг)
 app.get('*', (req, res) => {
-    // Если запрос не к API, отдаем index.html
     if (!req.path.startsWith('/api')) {
         res.sendFile(path.join(__dirname, '../public/index.html'));
     } else {
@@ -107,7 +108,7 @@ app.get('*', (req, res) => {
 });
 
 // Start server
-app.listen(port, '0.0.0.0', () => { // ← Добавил '0.0.0.0'
+app.listen(port, '0.0.0.0', () => {
     console.log('='.repeat(60));
     console.log(`🚀 WGauto CRM Server running on port ${port}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
