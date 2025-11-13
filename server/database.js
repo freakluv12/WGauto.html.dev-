@@ -9,7 +9,7 @@ const pool = new Pool({
 
 async function initDB() {
     try {
-        -- ==================== POS SHIFTS TABLE ====================
+        //==================== POS SHIFTS TABLE ====================
 CREATE TABLE IF NOT EXISTS pos_shifts (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS pos_shifts (
 CREATE INDEX idx_pos_shifts_user ON pos_shifts(user_id);
 CREATE INDEX idx_pos_shifts_active ON pos_shifts(user_id, end_time) WHERE end_time IS NULL;
 
--- ==================== RECEIPTS TABLE ====================
+//=================== RECEIPTS TABLE ====================
 CREATE TABLE IF NOT EXISTS receipts (
     id SERIAL PRIMARY KEY,
     shift_id INTEGER NOT NULL REFERENCES pos_shifts(id) ON DELETE CASCADE,
@@ -38,7 +38,7 @@ CREATE INDEX idx_receipts_user ON receipts(user_id);
 CREATE INDEX idx_receipts_time ON receipts(sale_time);
 CREATE INDEX idx_receipts_cancelled ON receipts(is_cancelled);
 
--- ==================== SALE ITEMS TABLE ====================
+//==================== SALE ITEMS TABLE ====================
 CREATE TABLE IF NOT EXISTS sale_items (
     id SERIAL PRIMARY KEY,
     receipt_id INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
 CREATE INDEX idx_sale_items_receipt ON sale_items(receipt_id);
 CREATE INDEX idx_sale_items_product ON sale_items(product_id);
 
--- ==================== UPDATE INVENTORY TABLE ====================
+//=================== UPDATE INVENTORY TABLE ====================
 -- Add sale_price column to inventory if not exists
 ALTER TABLE inventory 
 ADD COLUMN IF NOT EXISTS sale_price DECIMAL(10, 2);
@@ -66,7 +66,7 @@ ALTER TABLE inventory
 ADD CONSTRAINT inventory_source_type_check 
 CHECK (source_type IN ('purchased', 'dismantled', 'returned'));
 
--- ==================== INVENTORY SALES VIEW (for analytics) ====================
+//=================== INVENTORY SALES VIEW (for analytics) ====================
 -- This view combines data from sale_items and receipts for analytics
 CREATE OR REPLACE VIEW inventory_sales AS
 SELECT 
@@ -84,7 +84,7 @@ FROM sale_items si
 JOIN receipts r ON si.receipt_id = r.id
 WHERE r.is_cancelled = false;
 
--- ==================== USEFUL QUERIES ====================
+// ==================== USEFUL QUERIES ====================
 
 -- Get products with total inventory quantity
 CREATE OR REPLACE VIEW products_with_stock AS
@@ -108,7 +108,7 @@ LEFT JOIN receipts r ON ps.id = r.shift_id
 WHERE ps.end_time IS NULL
 GROUP BY ps.id;
 
--- ==================== SAMPLE DATA (optional) ====================
+//==================== SAMPLE DATA (optional) ====================
 
 -- Insert sample category if not exists
 INSERT INTO categories (name, description, icon, user_id)
@@ -124,7 +124,7 @@ SELECT
     1
 WHERE NOT EXISTS (SELECT 1 FROM subcategories WHERE name = 'Двигатель');
 
--- ==================== MIGRATION NOTES ====================
+//==================== MIGRATION NOTES ====================
 
 /*
 To apply this schema to your existing database:
@@ -143,14 +143,14 @@ To apply this schema to your existing database:
 5. Test POS functionality with a test shift
 */
 
--- ==================== PERFORMANCE INDEXES ====================
+// ==================== PERFORMANCE INDEXES ====================
 
 -- Additional indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_inventory_product_quantity ON inventory(product_id, quantity) WHERE quantity > 0;
 CREATE INDEX IF NOT EXISTS idx_inventory_received_date ON inventory(received_date);
 CREATE INDEX IF NOT EXISTS idx_sale_items_analytics ON sale_items(product_id, quantity, sale_price, cost_price);
 
--- ==================== CONSTRAINTS ====================
+// ==================== CONSTRAINTS ====================
 
 -- Ensure quantities are positive
 ALTER TABLE inventory 
@@ -166,7 +166,7 @@ ALTER TABLE sale_items
 ADD CONSTRAINT sale_items_prices_nonnegative 
 CHECK (sale_price >= 0 AND (cost_price IS NULL OR cost_price >= 0));
 
--- ==================== TRIGGERS ====================
+//==================== TRIGGERS ====================
 
 -- Optional: Trigger to prevent closing shift with active (non-paid) transactions
 CREATE OR REPLACE FUNCTION prevent_close_shift_with_pending()
