@@ -7,6 +7,7 @@ const Warehouse = {
     subcategories: [],
     products: [],
     inventory: [],
+    receiveList: [], // Список товаров для оприходования
 
     init() {
         this.createModals();
@@ -19,7 +20,6 @@ const Warehouse = {
             <div class="warehouse-action-bar">
                 <button class="btn" onclick="Warehouse.showAction('stock')">📦 Склад</button>
                 <button class="btn" onclick="Warehouse.showAction('receive')">📥 Оприходование</button>
-                <button class="btn" onclick="Warehouse.showAction('sell')">💰 Продажа</button>
                 <button class="btn" onclick="Warehouse.showAction('analytics')">📊 Аналитика</button>
             </div>
             <div id="warehouseMainContent"></div>
@@ -99,6 +99,7 @@ const Warehouse = {
                                 <th>Источник</th>
                                 <th>Количество</th>
                                 <th>Цена закупки</th>
+                                <th>Цена продажи</th>
                                 <th>Место</th>
                                 <th>Дата поступления</th>
                                 <th>На складе</th>
@@ -110,45 +111,13 @@ const Warehouse = {
             </div>
         `;
 
-        // Analytics Modal
+        // Shift History Modal
         modalsContainer.innerHTML += `
-            <div id="analyticsModal" class="modal">
-                <div class="modal-content" style="max-width: 1000px;">
-                    <span class="close" onclick="Utils.closeModal('analyticsModal')">&times;</span>
-                    <h2>Аналитика продаж</h2>
-                    
-                    <div style="display: flex; gap: 15px; margin-bottom: 20px;">
-                        <div class="form-group" style="flex: 1;">
-                            <label>Начальная дата</label>
-                            <input type="date" id="analyticsStartDate">
-                        </div>
-                        <div class="form-group" style="flex: 1;">
-                            <label>Конечная дата</label>
-                            <input type="date" id="analyticsEndDate">
-                        </div>
-                        <div style="display: flex; align-items: flex-end;">
-                            <button class="btn" onclick="Warehouse.loadAnalytics()">Применить</button>
-                        </div>
-                    </div>
-
-                    <h3>Итоги за период</h3>
-                    <div class="profit-summary" id="analyticsTotals"></div>
-
-                    <h3 style="margin-top: 30px;">Детализация по товарам</h3>
-                    <table class="table" id="analyticsTable">
-                        <thead>
-                            <tr>
-                                <th>Товар</th>
-                                <th>Категория</th>
-                                <th>Продано</th>
-                                <th>Оборот</th>
-                                <th>Себестоимость</th>
-                                <th>Прибыль</th>
-                                <th>Рентабельность</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
+            <div id="shiftHistoryModal" class="modal">
+                <div class="modal-content" style="max-width: 900px;">
+                    <span class="close" onclick="Utils.closeModal('shiftHistoryModal')">&times;</span>
+                    <h2>История смен</h2>
+                    <div id="shiftHistoryList"></div>
                 </div>
             </div>
         `;
@@ -160,16 +129,15 @@ const Warehouse = {
                 this.loadCategories();
                 break;
             case 'receive':
-                alert('Функция оприходования в разработке');
-                break;
-            case 'sell':
-                alert('Функция продажи в разработке');
+                this.showReceiveTab();
                 break;
             case 'analytics':
-                this.showAnalyticsModal();
+                this.showAnalyticsTab();
                 break;
         }
     },
+
+    // ==================== STOCK VIEW ====================
 
     async loadCategories() {
         try {
@@ -441,13 +409,14 @@ const Warehouse = {
             
             let inventoryHTML = '';
             if (this.inventory.length === 0) {
-                inventoryHTML = '<tr><td colspan="6">Нет остатков на складе</td></tr>';
+                inventoryHTML = '<tr><td colspan="7">Нет остатков на складе</td></tr>';
             } else {
                 inventoryHTML = this.inventory.map(inv => `
                     <tr>
                         <td>${inv.source_name}</td>
                         <td>${inv.quantity}</td>
                         <td>${inv.purchase_price ? Utils.getCurrencySymbol(inv.currency) + inv.purchase_price : 'N/A'}</td>
+                        <td>${inv.sale_price ? Utils.getCurrencySymbol(inv.currency) + inv.sale_price : 'N/A'}</td>
                         <td>${inv.location || 'N/A'}</td>
                         <td>${Utils.formatDate(inv.received_date)}</td>
                         <td>${inv.days_in_storage} дней</td>
@@ -467,9 +436,263 @@ const Warehouse = {
         }
     },
 
-    showAnalyticsModal() {
-        Utils.showModal('analyticsModal');
+    // ==================== RECEIVE TAB ====================
+
+    showReceiveTab() {
+        this.receiveList = [];
+        this.renderReceiveTab();
+    },
+
+    renderReceiveTab() {
+        let html = `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                <h3>Оприходование товаров</h3>
+            </div>
+
+            <div style="background: #3d3d3d; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h4 style="margin-bottom: 15px;">Поиск товара</h4>
+                <input type="text" id="receiveSearch" placeholder="Начните вводить название товара или SKU..." 
+                       style="width: 100%; padding: 12px; border: 1px solid #555; border-radius: 4px; background: #2d2d2d; color: #fff; font-size: 16px;"
+                       oninput="Warehouse.searchProductsForReceive()">
+                <div id="receiveSearchResults" style="margin-top: 10px; max-height: 300px; overflow-y: auto;"></div>
+            </div>
+
+            <div style="background: #3d3d3d; padding: 20px; border-radius: 8px;">
+                <h4 style="margin-bottom: 15px;">Товары для оприходования</h4>
+                <div id="receiveListContainer">
+                    ${this.receiveList.length === 0 ? 
+                        '<div class="loading">Добавьте товары для оприходования</div>' :
+                        this.renderReceiveList()
+                    }
+                </div>
+                ${this.receiveList.length > 0 ? 
+                    '<button class="btn" onclick="Warehouse.saveReceive()" style="margin-top: 20px; width: 100%; padding: 15px; font-size: 16px;">Сохранить все товары</button>' :
+                    ''
+                }
+            </div>
+        `;
+        
+        document.getElementById('warehouseMainContent').innerHTML = html;
+    },
+
+    async searchProductsForReceive() {
+        const searchTerm = document.getElementById('receiveSearch').value.toLowerCase().trim();
+        
+        if (searchTerm.length < 2) {
+            document.getElementById('receiveSearchResults').innerHTML = '';
+            return;
+        }
+
+        try {
+            const response = await API.call('/api/warehouse/products/search?q=' + encodeURIComponent(searchTerm));
+            if (!response) return;
+            
+            const products = await response.json();
+            
+            if (products.length === 0) {
+                document.getElementById('receiveSearchResults').innerHTML = '<div style="padding: 10px; color: #ccc;">Товары не найдены</div>';
+                return;
+            }
+            
+            let html = products.map(p => `
+                <div style="background: #2d2d2d; padding: 12px; margin-bottom: 8px; border-radius: 6px; cursor: pointer; transition: background 0.3s;"
+                     onmouseover="this.style.background='#4d4d4d'"
+                     onmouseout="this.style.background='#2d2d2d'"
+                     onclick="Warehouse.addToReceiveList(${p.id}, '${p.name.replace(/'/g, "\\'")}', '${p.sku || ''}')">
+                    <div style="font-weight: bold;">${p.name}</div>
+                    <div style="font-size: 12px; color: #ccc;">SKU: ${p.sku || 'N/A'} | На складе: ${p.total_quantity || 0}</div>
+                </div>
+            `).join('');
+            
+            document.getElementById('receiveSearchResults').innerHTML = html;
+        } catch (error) {
+            console.error('Search products error:', error);
+        }
+    },
+
+    addToReceiveList(productId, productName, productSku) {
+        // Check if already in list
+        if (this.receiveList.find(item => item.product_id === productId)) {
+            alert('Товар уже добавлен в список');
+            return;
+        }
+        
+        this.receiveList.push({
+            product_id: productId,
+            name: productName,
+            sku: productSku,
+            quantity: 1,
+            purchase_price: 0,
+            sale_price: 0,
+            currency: 'GEL',
+            location: ''
+        });
+        
+        document.getElementById('receiveSearch').value = '';
+        document.getElementById('receiveSearchResults').innerHTML = '';
+        this.renderReceiveTab();
+    },
+
+    removeFromReceiveList(index) {
+        this.receiveList.splice(index, 1);
+        this.renderReceiveTab();
+    },
+
+    updateReceiveItem(index, field, value) {
+        if (this.receiveList[index]) {
+            this.receiveList[index][field] = value;
+        }
+    },
+
+    renderReceiveList() {
+        return `
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Товар</th>
+                        <th>SKU</th>
+                        <th>Количество</th>
+                        <th>Цена закупки</th>
+                        <th>Цена продажи</th>
+                        <th>Валюта</th>
+                        <th>Место</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${this.receiveList.map((item, index) => `
+                        <tr>
+                            <td>${item.name}</td>
+                            <td>${item.sku || 'N/A'}</td>
+                            <td>
+                                <input type="number" min="1" value="${item.quantity}" 
+                                       style="width: 80px; padding: 6px; background: #2d2d2d; border: 1px solid #555; color: #fff; border-radius: 4px;"
+                                       onchange="Warehouse.updateReceiveItem(${index}, 'quantity', parseInt(this.value))">
+                            </td>
+                            <td>
+                                <input type="number" step="0.01" value="${item.purchase_price}" 
+                                       style="width: 100px; padding: 6px; background: #2d2d2d; border: 1px solid #555; color: #fff; border-radius: 4px;"
+                                       onchange="Warehouse.updateReceiveItem(${index}, 'purchase_price', parseFloat(this.value))">
+                            </td>
+                            <td>
+                                <input type="number" step="0.01" value="${item.sale_price}" 
+                                       style="width: 100px; padding: 6px; background: #2d2d2d; border: 1px solid #555; color: #fff; border-radius: 4px;"
+                                       onchange="Warehouse.updateReceiveItem(${index}, 'sale_price', parseFloat(this.value))">
+                            </td>
+                            <td>
+                                <select style="padding: 6px; background: #2d2d2d; border: 1px solid #555; color: #fff; border-radius: 4px;"
+                                        onchange="Warehouse.updateReceiveItem(${index}, 'currency', this.value)">
+                                    <option value="GEL" ${item.currency === 'GEL' ? 'selected' : ''}>GEL</option>
+                                    <option value="USD" ${item.currency === 'USD' ? 'selected' : ''}>USD</option>
+                                    <option value="EUR" ${item.currency === 'EUR' ? 'selected' : ''}>EUR</option>
+                                    <option value="RUB" ${item.currency === 'RUB' ? 'selected' : ''}>RUB</option>
+                                </select>
+                            </td>
+                            <td>
+                                <input type="text" value="${item.location}" placeholder="A-5"
+                                       style="width: 80px; padding: 6px; background: #2d2d2d; border: 1px solid #555; color: #fff; border-radius: 4px;"
+                                       onchange="Warehouse.updateReceiveItem(${index}, 'location', this.value)">
+                            </td>
+                            <td>
+                                <button class="btn btn-danger" onclick="Warehouse.removeFromReceiveList(${index})">✕</button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    },
+
+    async saveReceive() {
+        if (this.receiveList.length === 0) {
+            alert('Список пуст');
+            return;
+        }
+
+        // Validate
+        for (let item of this.receiveList) {
+            if (!item.quantity || item.quantity <= 0) {
+                alert('Укажите корректное количество для всех товаров');
+                return;
+            }
+            if (!item.sale_price || item.sale_price <= 0) {
+                alert('Укажите цену продажи для всех товаров');
+                return;
+            }
+        }
+
+        if (!confirm(`Оприходовать ${this.receiveList.length} товаров?`)) {
+            return;
+        }
+
+        try {
+            const response = await API.call('/api/warehouse/inventory/receive-bulk', {
+                method: 'POST',
+                body: JSON.stringify({ items: this.receiveList })
+            });
+            
+            if (response && response.ok) {
+                alert('Товары успешно оприходованы!');
+                this.receiveList = [];
+                this.renderReceiveTab();
+            } else {
+                alert('Не удалось оприходовать товары');
+            }
+        } catch (error) {
+            alert('Ошибка: ' + error.message);
+        }
+    },
+
+    // ==================== ANALYTICS TAB ====================
+
+    showAnalyticsTab() {
+        this.renderAnalyticsTab();
         this.loadAnalytics();
+    },
+
+    renderAnalyticsTab() {
+        let html = `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                <h3>Аналитика продаж</h3>
+            </div>
+            
+            <div style="display: flex; gap: 15px; margin-bottom: 20px;">
+                <div class="form-group" style="flex: 1;">
+                    <label>Начальная дата</label>
+                    <input type="date" id="analyticsStartDate" style="width: 100%; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label>Конечная дата</label>
+                    <input type="date" id="analyticsEndDate" style="width: 100%; padding: 10px; border: 1px solid #555; border-radius: 4px; background: #3d3d3d; color: #fff;">
+                </div>
+                <div style="display: flex; align-items: flex-end;">
+                    <button class="btn" onclick="Warehouse.loadAnalytics()">Применить</button>
+                </div>
+            </div>
+
+            <h3>Итоги за период</h3>
+            <div class="profit-summary" id="analyticsTotals"></div>
+
+            <h3 style="margin-top: 30px;">Детализация по товарам</h3>
+            <div style="overflow-x: auto;">
+                <table class="table" id="analyticsTable">
+                    <thead>
+                        <tr>
+                            <th>Товар</th>
+                            <th>Категория</th>
+                            <th>Продано</th>
+                            <th>Оборот</th>
+                            <th>Себестоимость</th>
+                            <th>Прибыль</th>
+                            <th>Рентабельность</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        `;
+        
+        document.getElementById('warehouseMainContent').innerHTML = html;
     },
 
     async loadAnalytics() {
@@ -488,7 +711,7 @@ const Warehouse = {
             
             let itemsHTML = '';
             if (data.items.length === 0) {
-                itemsHTML = '<tr><td colspan="7">No sales data for selected period</td></tr>';
+                itemsHTML = '<tr><td colspan="7">Нет данных о продажах за выбранный период</td></tr>';
             } else {
                 itemsHTML = data.items.map(item => {
                     const profitMargin = parseFloat(item.profit_margin_percent || 0).toFixed(2);
@@ -540,7 +763,7 @@ const Warehouse = {
                 });
             }
             
-            document.getElementById('analyticsTotals').innerHTML = totalsHTML;
+            document.getElementById('analyticsTotals').innerHTML = totalsHTML || '<div class="loading">Нет данных</div>';
             
         } catch (error) {
             console.error('Analytics error:', error);
