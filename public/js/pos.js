@@ -1,16 +1,28 @@
-// ==================== POS MODULE ====================
 const POS = {
     cart: [],
     categories: [],
     subcategories: [],
     products: [],
-    currentView: 'categories', // 'categories', 'subcategories', 'products'
+    currentView: 'categories',
     currentCategoryId: null,
     currentSubcategoryId: null,
+    activeShift: null,
 
-    init() {
+    async init() {
+        await this.loadActiveShift();
         this.renderPOS();
         this.loadCategories();
+    },
+
+    async loadActiveShift() {
+        try {
+            const response = await API.call('/api/pos/shift/active');
+            if (response && response.ok) {
+                this.activeShift = await response.json();
+            }
+        } catch (error) {
+            console.error('Load active shift error:', error);
+        }
     },
 
     renderPOS() {
@@ -18,12 +30,15 @@ const POS = {
             <div class="pos-container">
                 <div class="pos-left">
                     <input type="text" id="posSearch" placeholder="Поиск товаров..." 
-                           class="pos-search" oninput="POS.search()">
+                           class="pos-search" oninput="POS.handleSearch()">
                     <div id="posBreadcrumb" class="pos-breadcrumb"></div>
                     <div id="posItemsList" class="pos-items-list"></div>
                 </div>
                 <div class="pos-right">
-                    <div class="pos-receipt-header">Текущая продажа</div>
+                    <div class="pos-receipt-header">
+                        Текущая продажа
+                        ${this.activeShift ? `<span style="font-size: 12px; color: #888;">Смена #${this.activeShift.id}</span>` : ''}
+                    </div>
                     <div id="posReceiptItems" class="pos-receipt-items"></div>
                     <div id="posTotals" class="pos-totals"></div>
                     <div class="pos-actions">
@@ -124,7 +139,8 @@ const POS = {
                 const stockClass = prod.total_quantity <= 0 ? 'out' : 
                                   prod.total_quantity <= prod.min_stock_level ? 'low' : '';
                 return `
-                    <div class="pos-item" onclick='POS.addToCart(${JSON.stringify(prod)})'>
+                    <div class="pos-item ${prod.total_quantity <= 0 ? 'disabled' : ''}" 
+                         onclick='POS.addToCart(${JSON.stringify(prod).replace(/'/g, "&apos;")})'>
                         <div class="pos-item-info">
                             <div class="pos-item-name">${prod.name}</div>
                             <div class="pos-item-stock ${stockClass}">
@@ -140,27 +156,36 @@ const POS = {
         document.getElementById('posItemsList').innerHTML = itemsHTML || '<div class="loading">Нет элементов</div>';
     },
 
-    search() {
-        const searchTerm = document.getElementById('posSearch').value.toLowerCase();
+    handleSearch() {
+        const searchTerm = document.getElementById('posSearch').value.trim();
+        
         if (!searchTerm) {
             this.renderItems();
             return;
         }
-        
-        // Simple search in current products
-        if (this.currentView === 'products') {
-            const filtered = this.products.filter(p => 
-                p.name.toLowerCase().includes(searchTerm) ||
-                (p.sku && p.sku.toLowerCase().includes(searchTerm))
-            );
+
+        if (searchTerm.length < 2) return;
+
+        clearTimeout(this.searchTimeout);
+        this.searchTimeout = setTimeout(() => this.searchProducts(searchTerm), 300);
+    },
+
+    async searchProducts(query) {
+        try {
+            const response = await API.call(`/api/warehouse/products/search/all?q=${encodeURIComponent(query)}`);
+            if (!response) return;
             
-            let itemsHTML = filtered.map(prod => {
+            const results = await response.json();
+            
+            let itemsHTML = results.map(prod => {
                 const stockClass = prod.total_quantity <= 0 ? 'out' : 
                                   prod.total_quantity <= prod.min_stock_level ? 'low' : '';
                 return `
-                    <div class="pos-item" onclick='POS.addToCart(${JSON.stringify(prod)})'>
+                    <div class="pos-item ${prod.total_quantity <= 0 ? 'disabled' : ''}" 
+                         onclick='POS.addToCart(${JSON.stringify(prod).replace(/'/g, "&apos;")})'>
                         <div class="pos-item-info">
-                            <div class="pos-item-name">${prod.name}</div>
+                            <div class="pos-item-name">${prod.category_icon || '📦'} ${prod.name}</div>
+                            <div style="font-size: 11px; color: #888;">${prod.category_name} › ${prod.subcategory_name}</div>
                             <div class="pos-item-stock ${stockClass}">
                                 На складе: ${prod.total_quantity || 0}
                             </div>
@@ -171,6 +196,9 @@ const POS = {
             }).join('');
             
             document.getElementById('posItemsList').innerHTML = itemsHTML || '<div class="loading">Нет результатов</div>';
+            
+        } catch (error) {
+            console.error('Search error:', error);
         }
     },
 
@@ -191,7 +219,7 @@ const POS = {
             this.cart.push({ 
                 ...product, 
                 quantity: 1,
-                salePrice: 0 // User will need to set price
+                salePrice: 0
             });
         }
         
@@ -289,7 +317,6 @@ const POS = {
             return;
         }
         
-        // Check if all items have prices
         const itemsWithoutPrice = this.cart.filter(item => !item.salePrice || item.salePrice <= 0);
         if (itemsWithoutPrice.length > 0) {
             alert('Укажите цену для всех товаров');
@@ -299,13 +326,40 @@ const POS = {
         if (!confirm('Завершить продажу?')) {
             return;
         }
+
+        const total = this.cart.reduce((sum, item) => sum + (item.quantity * item.salePrice), 0);
         
-        // TODO: Implement sale completion via API
-        alert('Функция завершения продажи в разработке. Требуется API endpoint.');
-        
-        // For now, just clear cart
-        this.cart = [];
-        this.renderCart();
+        try {
+            const response = await API.call('/api/pos/sale/complete', {
+                method: 'POST',
+                body: JSON.stringify({
+                    items: this.cart.map(item => ({
+                        id: item.id,
+                        name: item.name,
+                        quantity: item.quantity,
+                        salePrice: item.salePrice
+                    })),
+                    currency: 'GEL'
+                })
+            });
+
+            if (response && response.ok) {
+                const result = await response.json();
+                alert(`Продажа успешно завершена!\nЧек #${result.receipt.id}\nСумма: ${total.toFixed(2)} GEL`);
+                
+                this.cart = [];
+                this.renderCart();
+                
+                if (this.currentView === 'products') {
+                    this.loadProducts(this.currentSubcategoryId);
+                }
+            } else {
+                const error = await response.json();
+                alert('Ошибка при завершении продажи: ' + (error.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Complete sale error:', error);
+            alert('Ошибка при завершении продажи: ' + error.message);
+        }
     }
 };
-
