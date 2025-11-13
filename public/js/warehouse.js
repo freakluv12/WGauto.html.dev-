@@ -18,7 +18,6 @@ const Warehouse = {
             <div class="warehouse-action-bar">
                 <button class="btn" onclick="Warehouse.showAction('stock')">📦 Склад</button>
                 <button class="btn" onclick="Warehouse.showAction('receive')">📥 Оприходование</button>
-                <button class="btn" onclick="Warehouse.showAction('procurements')">📋 История закупок</button>
                 <button class="btn" onclick="Warehouse.showAction('analytics')">📊 Аналитика</button>
             </div>
             <div id="warehouseMainContent"></div>
@@ -80,6 +79,41 @@ const Warehouse = {
             <button class="btn" onclick="Warehouse.addProduct()">Добавить товар</button>
         `);
 
+        // Receive Inventory Modal
+        modalsContainer.innerHTML += Utils.createModal('receiveInventoryModal', 'Оприходовать товар', `
+            <div class="form-group">
+                <label>Выберите товар</label>
+                <select id="receiveProductSelect" required>
+                    <option value="">-- Выберите товар --</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Количество</label>
+                <input type="number" id="receiveQuantity" min="1" value="1" required>
+            </div>
+            <div class="form-group">
+                <label>Цена закупки (за единицу)</label>
+                <input type="number" id="receivePurchasePrice" step="0.01" min="0">
+            </div>
+            <div class="form-group">
+                <label>Рекомендуемая цена продажи</label>
+                <input type="number" id="receiveSalePrice" step="0.01" min="0">
+            </div>
+            <div class="form-group">
+                <label>Валюта</label>
+                <select id="receiveCurrency">
+                    <option value="GEL">GEL</option>
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Место хранения</label>
+                <input type="text" id="receiveLocation" placeholder="Полка A1">
+            </div>
+            <button class="btn" onclick="Warehouse.receiveInventory()">Оприходовать</button>
+        `);
+
         // Product Details Modal
         modalsContainer.innerHTML += `
             <div id="productDetailsModal" class="modal">
@@ -98,6 +132,7 @@ const Warehouse = {
                                 <th>Источник</th>
                                 <th>Количество</th>
                                 <th>Цена закупки</th>
+                                <th>Цена продажи</th>
                                 <th>Место</th>
                                 <th>Дата поступления</th>
                                 <th>На складе</th>
@@ -105,54 +140,6 @@ const Warehouse = {
                         </thead>
                         <tbody></tbody>
                     </table>
-                </div>
-            </div>
-        `;
-
-        // Procurement Modal
-        modalsContainer.innerHTML += `
-            <div id="procurementModal" class="modal">
-                <div class="modal-content" style="max-width: 900px;">
-                    <span class="close" onclick="Utils.closeModal('procurementModal')">&times;</span>
-                    <h2>Оприходование товара</h2>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
-                        <div class="form-group">
-                            <label>Поставщик</label>
-                            <input type="text" id="procSupplier" placeholder="Название поставщика">
-                        </div>
-                        <div class="form-group">
-                            <label>Номер накладной</label>
-                            <input type="text" id="procInvoice" placeholder="INV-001">
-                        </div>
-                        <div class="form-group">
-                            <label>Дата</label>
-                            <input type="date" id="procDate" value="${new Date().toISOString().split('T')[0]}">
-                        </div>
-                        <div class="form-group">
-                            <label>Валюта</label>
-                            <select id="procCurrency">
-                                <option value="GEL">GEL</option>
-                                <option value="USD">USD</option>
-                                <option value="EUR">EUR</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Примечания</label>
-                        <textarea id="procNotes" rows="2"></textarea>
-                    </div>
-
-                    <h3>Товары</h3>
-                    <div id="procItems"></div>
-                    <button class="btn" onclick="Warehouse.addProcurementItem()" style="margin-bottom: 20px;">+ Добавить товар</button>
-                    
-                    <div style="text-align: right; font-size: 18px; font-weight: bold; margin-bottom: 20px;">
-                        Итого: <span id="procTotal">0.00</span> <span id="procTotalCurrency">GEL</span>
-                    </div>
-                    
-                    <button class="btn" onclick="Warehouse.submitProcurement()">Оприходовать</button>
                 </div>
             </div>
         `;
@@ -207,10 +194,7 @@ const Warehouse = {
                 this.loadCategories();
                 break;
             case 'receive':
-                this.showProcurementModal();
-                break;
-            case 'procurements':
-                this.loadProcurements();
+                this.showReceiveModal();
                 break;
             case 'analytics':
                 this.showAnalyticsModal();
@@ -218,209 +202,90 @@ const Warehouse = {
         }
     },
 
-    // ==================== PROCUREMENT FUNCTIONS ====================
-    procurementItems: [],
-
-    showProcurementModal() {
-        this.procurementItems = [];
-        document.getElementById('procItems').innerHTML = '';
-        document.getElementById('procSupplier').value = '';
-        document.getElementById('procInvoice').value = '';
-        document.getElementById('procNotes').value = '';
-        this.addProcurementItem();
-        Utils.showModal('procurementModal');
-    },
-
-    async addProcurementItem() {
-        const itemId = Date.now();
-        const itemHTML = `
-            <div class="proc-item" id="procItem${itemId}" style="background: #2d2d2d; padding: 15px; margin-bottom: 10px; border-radius: 8px;">
-                <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 10px; align-items: end;">
-                    <div class="form-group">
-                        <label>Товар</label>
-                        <select class="proc-product" data-item="${itemId}" onchange="Warehouse.updateProcTotal()">
-                            <option value="">Выберите товар...</option>
-                            ${await this.getProductsOptions()}
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Количество</label>
-                        <input type="number" class="proc-quantity" data-item="${itemId}" min="1" value="1" onchange="Warehouse.updateProcTotal()">
-                    </div>
-                    <div class="form-group">
-                        <label>Цена закупки</label>
-                        <input type="number" class="proc-price" data-item="${itemId}" step="0.01" min="0" value="0" onchange="Warehouse.updateProcTotal()">
-                    </div>
-                    <div class="form-group">
-                        <label>Цена продажи</label>
-                        <input type="number" class="proc-sale-price" data-item="${itemId}" step="0.01" min="0" value="0">
-                    </div>
-                    <button class="btn" onclick="Warehouse.removeProcurementItem(${itemId})" style="background: #d32f2f;">✕</button>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('procItems').insertAdjacentHTML('beforeend', itemHTML);
-    },
-
-    async getProductsOptions() {
+    async showReceiveModal() {
+        // Load all products for selection
         try {
-            const response = await API.call('/api/warehouse/categories');
-            if (!response) return '';
+            const categoriesRes = await API.call('/api/warehouse/categories');
+            if (!categoriesRes) return;
+            const categories = await categoriesRes.json();
             
-            const categories = await response.json();
-            let options = '';
-            
+            let allProducts = [];
             for (const cat of categories) {
-                const subResponse = await API.call(`/api/warehouse/subcategories/${cat.id}`);
-                const subcategories = await subResponse.json();
+                const subRes = await API.call(`/api/warehouse/subcategories/${cat.id}`);
+                if (!subRes) continue;
+                const subs = await subRes.json();
                 
-                for (const sub of subcategories) {
-                    const prodResponse = await API.call(`/api/warehouse/products/${sub.id}`);
-                    const products = await prodResponse.json();
-                    
-                    if (products.length > 0) {
-                        options += `<optgroup label="${cat.name} - ${sub.name}">`;
-                        products.forEach(prod => {
-                            options += `<option value="${prod.id}">${prod.name} ${prod.sku ? '(' + prod.sku + ')' : ''}</option>`;
-                        });
-                        options += `</optgroup>`;
-                    }
+                for (const sub of subs) {
+                    const prodRes = await API.call(`/api/warehouse/products/${sub.id}`);
+                    if (!prodRes) continue;
+                    const prods = await prodRes.json();
+                    allProducts = allProducts.concat(prods.map(p => ({
+                        ...p,
+                        categoryName: cat.name,
+                        subcategoryName: sub.name
+                    })));
                 }
             }
             
-            return options;
+            const select = document.getElementById('receiveProductSelect');
+            select.innerHTML = '<option value="">-- Выберите товар --</option>' + 
+                allProducts.map(p => 
+                    `<option value="${p.id}">${p.categoryName} > ${p.subcategoryName} > ${p.name}</option>`
+                ).join('');
+            
+            Utils.showModal('receiveInventoryModal');
         } catch (error) {
-            console.error('Get products options error:', error);
-            return '';
+            console.error('Load products for receive error:', error);
+            alert('Ошибка загрузки товаров');
         }
     },
 
-    removeProcurementItem(itemId) {
-        document.getElementById(`procItem${itemId}`).remove();
-        this.updateProcTotal();
-    },
-
-    updateProcTotal() {
-        let total = 0;
-        const items = document.querySelectorAll('.proc-item');
+    async receiveInventory() {
+        const data = {
+            product_id: parseInt(document.getElementById('receiveProductSelect').value),
+            quantity: parseInt(document.getElementById('receiveQuantity').value),
+            purchase_price: parseFloat(document.getElementById('receivePurchasePrice').value) || null,
+            sale_price: parseFloat(document.getElementById('receiveSalePrice').value) || null,
+            currency: document.getElementById('receiveCurrency').value,
+            location: document.getElementById('receiveLocation').value,
+            source_type: 'purchased'
+        };
         
-        items.forEach(item => {
-            const qty = parseFloat(item.querySelector('.proc-quantity').value) || 0;
-            const price = parseFloat(item.querySelector('.proc-price').value) || 0;
-            total += qty * price;
-        });
-        
-        const currency = document.getElementById('procCurrency').value;
-        document.getElementById('procTotal').textContent = total.toFixed(2);
-        document.getElementById('procTotalCurrency').textContent = currency;
-    },
-
-    async submitProcurement() {
-        const items = [];
-        const itemElements = document.querySelectorAll('.proc-item');
-        
-        itemElements.forEach(elem => {
-            const productId = elem.querySelector('.proc-product').value;
-            const quantity = parseInt(elem.querySelector('.proc-quantity').value);
-            const price = parseFloat(elem.querySelector('.proc-price').value);
-            const salePrice = parseFloat(elem.querySelector('.proc-sale-price').value);
-            
-            if (productId && quantity > 0 && price >= 0) {
-                items.push({
-                    product_id: parseInt(productId),
-                    quantity: quantity,
-                    unit_price: price,
-                    sale_price: salePrice > 0 ? salePrice : null,
-                    currency: document.getElementById('procCurrency').value
-                });
-            }
-        });
-        
-        if (items.length === 0) {
-            alert('Добавьте хотя бы один товар');
+        if (!data.product_id) {
+            alert('Выберите товар');
             return;
         }
         
-        const data = {
-            supplier_name: document.getElementById('procSupplier').value,
-            invoice_number: document.getElementById('procInvoice').value,
-            procurement_date: document.getElementById('procDate').value,
-            notes: document.getElementById('procNotes').value,
-            items: items
-        };
+        if (!data.quantity || data.quantity <= 0) {
+            alert('Укажите количество');
+            return;
+        }
         
         try {
-            const response = await API.call('/api/warehouse/procurements', {
+            const response = await API.call('/api/warehouse/inventory/receive', {
                 method: 'POST',
                 body: JSON.stringify(data)
             });
             
             if (response && response.ok) {
-                alert('Оприходование выполнено успешно!');
-                Utils.closeModal('procurementModal');
-                this.loadProcurements();
+                alert('✅ Товар успешно оприходован!');
+                Utils.closeModal('receiveInventoryModal');
+                Utils.clearForm('receiveInventoryModal');
+                
+                // Reload current view if in products
+                if (this.currentView === 'products' && this.currentSubcategoryId) {
+                    this.loadProducts(this.currentSubcategoryId);
+                }
             } else {
                 const error = await response.json();
-                alert('Ошибка: ' + (error.error || 'Не удалось выполнить оприходование'));
+                alert('Ошибка: ' + (error.error || 'Не удалось оприходовать товар'));
             }
         } catch (error) {
-            console.error('Submit procurement error:', error);
-            alert('Ошибка при оприходовании');
+            console.error('Receive inventory error:', error);
+            alert('Ошибка: ' + error.message);
         }
     },
 
-    async loadProcurements() {
-        try {
-            const response = await API.call('/api/warehouse/procurements');
-            if (!response) return;
-            
-            const procurements = await response.json();
-            
-            let html = `
-                <div style="margin-bottom: 20px;">
-                    <h3>История оприходований</h3>
-                </div>
-            `;
-            
-            if (procurements.length === 0) {
-                html += '<div class="loading">Нет оприходований</div>';
-            } else {
-                html += `
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Дата</th>
-                                <th>Поставщик</th>
-                                <th>Накладная</th>
-                                <th>Сумма</th>
-                                <th>Примечания</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${procurements.map(p => `
-                                <tr>
-                                    <td>${p.id}</td>
-                                    <td>${Utils.formatDate(p.procurement_date)}</td>
-                                    <td>${p.supplier_name || 'N/A'}</td>
-                                    <td>${p.invoice_number || 'N/A'}</td>
-                                    <td>${Utils.getCurrencySymbol(p.currency)}${parseFloat(p.total_amount).toFixed(2)}</td>
-                                    <td>${p.notes || ''}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                `;
-            }
-            
-            document.getElementById('warehouseMainContent').innerHTML = html;
-        } catch (error) {
-            console.error('Load procurements error:', error);
-        }
-    },
-
-    // ==================== STOCK MANAGEMENT ====================
     async loadCategories() {
         try {
             const response = await API.call('/api/warehouse/categories');
@@ -691,13 +556,14 @@ const Warehouse = {
             
             let inventoryHTML = '';
             if (this.inventory.length === 0) {
-                inventoryHTML = '<tr><td colspan="6">Нет остатков на складе</td></tr>';
+                inventoryHTML = '<tr><td colspan="7">Нет остатков на складе</td></tr>';
             } else {
                 inventoryHTML = this.inventory.map(inv => `
                     <tr>
                         <td>${inv.source_name}</td>
                         <td>${inv.quantity}</td>
                         <td>${inv.purchase_price ? Utils.getCurrencySymbol(inv.currency) + inv.purchase_price : 'N/A'}</td>
+                        <td>${inv.sale_price ? Utils.getCurrencySymbol(inv.currency) + inv.sale_price : 'N/A'}</td>
                         <td>${inv.location || 'N/A'}</td>
                         <td>${Utils.formatDate(inv.received_date)}</td>
                         <td>${inv.days_in_storage} дней</td>
@@ -747,4 +613,53 @@ const Warehouse = {
                             <td>${item.product_name}</td>
                             <td>${item.category_name} > ${item.subcategory_name}</td>
                             <td>${item.total_sold}</td>
-                            <td>${Utils.getCurrencySymbol(item.currency)}${parseFloat(item.total_revenue ||
+                            <td>${Utils.getCurrencySymbol(item.currency)}${parseFloat(item.total_revenue || 0).toFixed(2)}</td>
+                            <td>${Utils.getCurrencySymbol(item.currency)}${parseFloat(item.total_cost || 0).toFixed(2)}</td>
+                            <td class="${parseFloat(item.net_profit) >= 0 ? 'positive' : 'negative'}">
+                                ${Utils.getCurrencySymbol(item.currency)}${parseFloat(item.net_profit || 0).toFixed(2)}
+                            </td>
+                            <td>${profitMargin}%</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+            
+            document.querySelector('#analyticsTable tbody').innerHTML = itemsHTML;
+            
+            let totalsHTML = '';
+            if (data.totals && data.totals.length > 0) {
+                data.totals.forEach(total => {
+                    totalsHTML += `
+                        <div class="profit-card">
+                            <div class="currency-label">${total.currency} Всего продано</div>
+                            <div class="amount">${total.total_sold} шт</div>
+                        </div>
+                        <div class="profit-card">
+                            <div class="currency-label">${total.currency} Оборот</div>
+                            <div class="amount positive">${Utils.getCurrencySymbol(total.currency)}${parseFloat(total.total_revenue).toFixed(2)}</div>
+                        </div>
+                        <div class="profit-card">
+                            <div class="currency-label">${total.currency} Себестоимость</div>
+                            <div class="amount">${Utils.getCurrencySymbol(total.currency)}${parseFloat(total.total_cost).toFixed(2)}</div>
+                        </div>
+                        <div class="profit-card">
+                            <div class="currency-label">${total.currency} Чистая прибыль</div>
+                            <div class="amount ${parseFloat(total.net_profit) >= 0 ? 'positive' : 'negative'}">
+                                ${Utils.getCurrencySymbol(total.currency)}${parseFloat(total.net_profit).toFixed(2)}
+                            </div>
+                        </div>
+                        <div class="profit-card">
+                            <div class="currency-label">${total.currency} Рентабельность</div>
+                            <div class="amount">${total.profit_margin_percent}%</div>
+                        </div>
+                    `;
+                });
+            }
+            
+            document.getElementById('analyticsTotals').innerHTML = totalsHTML || '<p>Нет данных за выбранный период</p>';
+            
+        } catch (error) {
+            console.error('Analytics error:', error);
+        }
+    }
+};
