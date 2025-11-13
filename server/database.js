@@ -247,8 +247,18 @@ async function initDB() {
             CREATE INDEX IF NOT EXISTS idx_sale_items_analytics ON sale_items(product_id, quantity, sale_price, cost_price);
         `);
 
-// Drop old inventory_sales table if exists (до создания VIEW)
-await pool.query(`DROP TABLE IF EXISTS inventory_sales CASCADE;`);
+// Safely drop old table or view if it exists
+await pool.query(`
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'inventory_sales') THEN
+            DROP VIEW inventory_sales;
+        ELSIF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'inventory_sales') THEN
+            DROP TABLE inventory_sales;
+        END IF;
+    END $$;
+`);
+        
 // Create view for inventory sales (replaces old table)
         await pool.query(`
             CREATE OR REPLACE VIEW inventory_sales AS
