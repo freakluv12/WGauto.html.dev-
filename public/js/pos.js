@@ -6,56 +6,18 @@ const POS = {
     currentView: 'categories',
     currentCategoryId: null,
     currentSubcategoryId: null,
-    activeShift: null,
 
-    async init() {
-        await this.checkActiveShift();
+    init() {
         this.renderPOS();
         this.loadCategories();
-    },
-
-    async checkActiveShift() {
-        try {
-            const response = await API.call('/api/pos/shift/active');
-            if (response && response.ok) {
-                this.activeShift = await response.json();
-                if (!this.activeShift) {
-                    // Auto-start shift
-                    await this.startShift();
-                }
-            }
-        } catch (error) {
-            console.error('Check active shift error:', error);
-        }
-    },
-
-    async startShift() {
-        try {
-            const response = await API.call('/api/pos/shift/start', {
-                method: 'POST'
-            });
-            if (response && response.ok) {
-                this.activeShift = await response.json();
-                console.log('Shift started:', this.activeShift);
-            }
-        } catch (error) {
-            console.error('Start shift error:', error);
-        }
     },
 
     renderPOS() {
         document.getElementById('posContent').innerHTML = `
             <div class="pos-container">
                 <div class="pos-left">
-                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                        <input type="text" id="posSearch" placeholder="Поиск товаров..." 
-                               class="pos-search" style="flex: 1;" oninput="POS.search()">
-                        ${this.activeShift ? 
-                            `<button class="pos-btn pos-btn-clear" onclick="POS.showShiftInfo()">
-                                📊 Смена #${this.activeShift.id}
-                            </button>` : ''
-                        }
-                    </div>
+                    <input type="text" id="posSearch" placeholder="Поиск товаров..." 
+                           class="pos-search" oninput="POS.search()">
                     <div id="posBreadcrumb" class="pos-breadcrumb"></div>
                     <div id="posItemsList" class="pos-items-list"></div>
                 </div>
@@ -69,30 +31,47 @@ const POS = {
                     </div>
                 </div>
             </div>
+            
+            <!-- Модальное окно скидки -->
+            <div id="discountModal" class="modal" style="display: none;">
+                <div class="modal-content" style="max-width: 400px;">
+                    <h3>Применить скидку</h3>
+                    <div style="margin: 20px 0;">
+                        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                            <button class="pos-btn" onclick="POS.setDiscountType('percent')" 
+                                    id="discountTypePercent" style="flex: 1;">%</button>
+                            <button class="pos-btn" onclick="POS.setDiscountType('fixed')" 
+                                    id="discountTypeFixed" style="flex: 1;">₾</button>
+                        </div>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px;">Сумма до скидки:</label>
+                            <div style="font-size: 24px; font-weight: bold; color: #333;" id="discountOriginalTotal"></div>
+                        </div>
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px;">Размер скидки:</label>
+                            <input type="number" id="discountValue" placeholder="0" 
+                                   style="width: 100%; padding: 10px; font-size: 18px;" 
+                                   oninput="POS.calculateDiscount()">
+                        </div>
+                        <div style="margin-bottom: 20px; padding: 15px; background: #f0f9ff; border-radius: 8px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                                <span>Скидка:</span>
+                                <span id="discountAmount" style="color: #e74c3c; font-weight: bold;">0.00 ₾</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 20px; font-weight: bold;">
+                                <span>К оплате:</span>
+                                <span id="discountFinalTotal" style="color: #27ae60;">0.00 ₾</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-secondary" onclick="POS.closeDiscountModal()" style="flex: 1;">Отмена</button>
+                        <button class="btn btn-primary" onclick="POS.applyDiscountAndComplete()" style="flex: 1;">Подтвердить</button>
+                    </div>
+                </div>
+            </div>
         `;
         this.renderCart();
-    },
-
-    async showShiftInfo() {
-        if (!this.activeShift) return;
-        
-        try {
-            const response = await API.call(`/api/pos/stats/shift/${this.activeShift.id}`);
-            if (response && response.ok) {
-                const stats = await response.json();
-                alert(`
-Смена #${stats.id}
-Начало: ${new Date(stats.start_time).toLocaleString('ru-RU')}
-Продаж: ${stats.total_receipts}
-Отменено: ${stats.cancelled_receipts}
-Выручка: ${parseFloat(stats.total_sales || 0).toFixed(2)} GEL
-Товаров продано: ${stats.total_items_sold}
-Прибыль: ${parseFloat(stats.profit || 0).toFixed(2)} GEL
-                `.trim());
-            }
-        } catch (error) {
-            console.error('Get shift stats error:', error);
-        }
     },
 
     async loadCategories() {
@@ -127,10 +106,28 @@ const POS = {
     async loadProducts(subcategoryId) {
         this.currentSubcategoryId = subcategoryId;
         try {
+            // Загружаем продукты с ценами из инвентаря
             const response = await API.call(`/api/warehouse/products/${subcategoryId}`);
             if (!response) return;
             
-            this.products = await response.json();
+            const products = await response.json();
+            
+            // Для каждого продукта загружаем инвентарь с ценами
+            for (let product of products) {
+                try {
+                    const invResponse = await API.call(`/api/warehouse/inventory?product_id=${product.id}`);
+                    if (invResponse) {
+                        const inventory = await invResponse.json();
+                        // Берем первую цену продажи из инвентаря
+                        const itemWithPrice = inventory.find(inv => inv.sale_price && inv.sale_price > 0);
+                        product.defaultSalePrice = itemWithPrice ? itemWithPrice.sale_price : 0;
+                    }
+                } catch (err) {
+                    console.error('Error loading inventory for product:', product.id, err);
+                }
+            }
+            
+            this.products = products;
             this.currentView = 'products';
             this.renderBreadcrumb();
             this.renderItems();
@@ -144,16 +141,12 @@ const POS = {
         
         if (this.currentCategoryId) {
             const category = this.categories.find(c => c.id === this.currentCategoryId);
-            if (category) {
-                breadcrumbHTML += `<div class="pos-breadcrumb-item" onclick="POS.loadSubcategories(${this.currentCategoryId})">${category.name}</div>`;
-            }
+            breadcrumbHTML += `<div class="pos-breadcrumb-item" onclick="POS.loadSubcategories(${this.currentCategoryId})">${category.name}</div>`;
         }
         
         if (this.currentSubcategoryId) {
             const subcategory = this.subcategories.find(s => s.id === this.currentSubcategoryId);
-            if (subcategory) {
-                breadcrumbHTML += `<div class="pos-breadcrumb-item">${subcategory.name}</div>`;
-            }
+            breadcrumbHTML += `<div class="pos-breadcrumb-item">${subcategory.name}</div>`;
         }
         
         document.getElementById('posBreadcrumb').innerHTML = breadcrumbHTML;
@@ -186,16 +179,19 @@ const POS = {
             itemsHTML = this.products.map(prod => {
                 const stockClass = prod.total_quantity <= 0 ? 'out' : 
                                   prod.total_quantity <= prod.min_stock_level ? 'low' : '';
+                const priceInfo = prod.defaultSalePrice > 0 ? 
+                    `<div style="color: #27ae60; font-weight: bold; font-size: 14px;">${prod.defaultSalePrice.toFixed(2)} ₾</div>` : 
+                    '<div style="color: #999; font-size: 12px;">Цена не указана</div>';
                 return `
-                    <div class="pos-item ${prod.total_quantity <= 0 ? 'disabled' : ''}" 
-                         onclick='${prod.total_quantity > 0 ? `POS.addToCart(${JSON.stringify(prod).replace(/'/g, "\\'")})` : ""}'>
+                    <div class="pos-item" onclick='POS.addToCart(${JSON.stringify(prod).replace(/'/g, "&apos;")})'>
                         <div class="pos-item-info">
                             <div class="pos-item-name">${prod.name}</div>
                             <div class="pos-item-stock ${stockClass}">
                                 На складе: ${prod.total_quantity || 0}
                             </div>
+                            ${priceInfo}
                         </div>
-                        <div class="pos-item-price">${prod.total_quantity > 0 ? '+' : '✕'}</div>
+                        <div class="pos-item-price">+</div>
                     </div>
                 `;
             }).join('');
@@ -220,16 +216,19 @@ const POS = {
             let itemsHTML = filtered.map(prod => {
                 const stockClass = prod.total_quantity <= 0 ? 'out' : 
                                   prod.total_quantity <= prod.min_stock_level ? 'low' : '';
+                const priceInfo = prod.defaultSalePrice > 0 ? 
+                    `<div style="color: #27ae60; font-weight: bold; font-size: 14px;">${prod.defaultSalePrice.toFixed(2)} ₾</div>` : 
+                    '<div style="color: #999; font-size: 12px;">Цена не указана</div>';
                 return `
-                    <div class="pos-item ${prod.total_quantity <= 0 ? 'disabled' : ''}" 
-                         onclick='${prod.total_quantity > 0 ? `POS.addToCart(${JSON.stringify(prod).replace(/'/g, "\\'")})` : ""}'>
+                    <div class="pos-item" onclick='POS.addToCart(${JSON.stringify(prod).replace(/'/g, "&apos;")})'>
                         <div class="pos-item-info">
                             <div class="pos-item-name">${prod.name}</div>
                             <div class="pos-item-stock ${stockClass}">
                                 На складе: ${prod.total_quantity || 0}
                             </div>
+                            ${priceInfo}
                         </div>
-                        <div class="pos-item-price">${prod.total_quantity > 0 ? '+' : '✕'}</div>
+                        <div class="pos-item-price">+</div>
                     </div>
                 `;
             }).join('');
@@ -255,7 +254,7 @@ const POS = {
             this.cart.push({ 
                 ...product, 
                 quantity: 1,
-                salePrice: 0
+                salePrice: product.defaultSalePrice || 0 // Автоматически подставляем цену
             });
         }
         
@@ -330,7 +329,7 @@ const POS = {
             </div>
             <div class="pos-total-row final">
                 <span>ИТОГО:</span>
-                <span>${total.toFixed(2)} GEL</span>
+                <span>${total.toFixed(2)} ₾</span>
             </div>
         `;
         
@@ -347,7 +346,7 @@ const POS = {
         }
     },
 
-    async completeSale() {
+    completeSale() {
         if (this.cart.length === 0) {
             alert('Корзина пуста');
             return;
@@ -359,37 +358,96 @@ const POS = {
             return;
         }
         
-        if (!confirm('Завершить продажу?')) {
-            return;
+        // Открываем модальное окно скидки
+        this.openDiscountModal();
+    },
+
+    openDiscountModal() {
+        const total = this.cart.reduce((sum, item) => sum + (item.quantity * item.salePrice), 0);
+        
+        document.getElementById('discountOriginalTotal').textContent = `${total.toFixed(2)} ₾`;
+        document.getElementById('discountValue').value = '';
+        document.getElementById('discountAmount').textContent = '0.00 ₾';
+        document.getElementById('discountFinalTotal').textContent = `${total.toFixed(2)} ₾`;
+        
+        this.discountType = 'percent';
+        this.setDiscountType('percent');
+        
+        document.getElementById('discountModal').style.display = 'flex';
+    },
+
+    closeDiscountModal() {
+        document.getElementById('discountModal').style.display = 'none';
+    },
+
+    setDiscountType(type) {
+        this.discountType = type;
+        
+        document.getElementById('discountTypePercent').style.background = 
+            type === 'percent' ? '#3498db' : '#95a5a6';
+        document.getElementById('discountTypeFixed').style.background = 
+            type === 'fixed' ? '#3498db' : '#95a5a6';
+        
+        const input = document.getElementById('discountValue');
+        input.placeholder = type === 'percent' ? '0-100%' : '0.00 ₾';
+        
+        this.calculateDiscount();
+    },
+
+    calculateDiscount() {
+        const total = this.cart.reduce((sum, item) => sum + (item.quantity * item.salePrice), 0);
+        const discountValue = parseFloat(document.getElementById('discountValue').value) || 0;
+        
+        let discountAmount = 0;
+        
+        if (this.discountType === 'percent') {
+            if (discountValue > 100) {
+                document.getElementById('discountValue').value = 100;
+                discountAmount = total;
+            } else {
+                discountAmount = (total * discountValue) / 100;
+            }
+        } else {
+            if (discountValue > total) {
+                document.getElementById('discountValue').value = total.toFixed(2);
+                discountAmount = total;
+            } else {
+                discountAmount = discountValue;
+            }
         }
         
-        try {
-            const response = await API.call('/api/pos/sale', {
-                method: 'POST',
-                body: JSON.stringify({
-                    items: this.cart,
-                    currency: 'GEL'
-                })
-            });
-            
-            if (response && response.ok) {
-                const result = await response.json();
-                alert(`✅ Продажа завершена!\nЧек #${result.receipt.id}\nСумма: ${result.receipt.total_amount} GEL`);
-                
-                this.cart = [];
-                this.renderCart();
-                
-                // Reload products to update stock
-                if (this.currentView === 'products' && this.currentSubcategoryId) {
-                    await this.loadProducts(this.currentSubcategoryId);
-                }
-            } else {
-                const error = await response.json();
-                alert('Ошибка: ' + (error.error || 'Не удалось завершить продажу'));
-            }
-        } catch (error) {
-            console.error('Complete sale error:', error);
-            alert('Ошибка при завершении продажи: ' + error.message);
+        const finalTotal = total - discountAmount;
+        
+        document.getElementById('discountAmount').textContent = `${discountAmount.toFixed(2)} ₾`;
+        document.getElementById('discountFinalTotal').textContent = `${finalTotal.toFixed(2)} ₾`;
+    },
+
+    async applyDiscountAndComplete() {
+        const total = this.cart.reduce((sum, item) => sum + (item.quantity * item.salePrice), 0);
+        const discountValue = parseFloat(document.getElementById('discountValue').value) || 0;
+        
+        let discountAmount = 0;
+        if (this.discountType === 'percent') {
+            discountAmount = (total * Math.min(discountValue, 100)) / 100;
+        } else {
+            discountAmount = Math.min(discountValue, total);
         }
+        
+        const finalTotal = total - discountAmount;
+        
+        // TODO: Отправить данные на сервер
+        console.log('Sale data:', {
+            items: this.cart,
+            originalTotal: total,
+            discount: discountAmount,
+            finalTotal: finalTotal,
+            discountType: this.discountType
+        });
+        
+        alert(`Продажа завершена!\nИтого: ${finalTotal.toFixed(2)} ₾\n(Скидка: ${discountAmount.toFixed(2)} ₾)`);
+        
+        this.closeDiscountModal();
+        this.cart = [];
+        this.renderCart();
     }
 };
