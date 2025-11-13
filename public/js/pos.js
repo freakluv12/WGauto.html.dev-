@@ -7,100 +7,60 @@ const POS = {
     currentCategoryId: null,
     currentSubcategoryId: null,
     activeShift: null,
-    currency: 'GEL',
 
-    init() {
-        this.checkActiveShift();
+    async init() {
+        await this.checkActiveShift();
+        this.renderPOS();
+        this.loadCategories();
     },
 
     async checkActiveShift() {
         try {
-            const response = await API.call('/api/warehouse/shifts/active');
-            if (!response) return;
-            
-            const shift = await response.json();
-            this.activeShift = shift;
-            this.renderPOS();
-            this.loadCategories();
+            const response = await API.call('/api/pos/shift/active');
+            if (response && response.ok) {
+                this.activeShift = await response.json();
+                if (!this.activeShift) {
+                    // Auto-start shift
+                    await this.startShift();
+                }
+            }
         } catch (error) {
-            console.error('Check shift error:', error);
-            this.renderPOS();
+            console.error('Check active shift error:', error);
         }
     },
 
-    async openShift() {
+    async startShift() {
         try {
-            const response = await API.call('/api/warehouse/shifts/open', {
+            const response = await API.call('/api/pos/shift/start', {
                 method: 'POST'
             });
-            
-            if (!response) return;
-            
-            this.activeShift = await response.json();
-            alert('Смена открыта');
-            this.renderPOS();
-            this.loadCategories();
+            if (response && response.ok) {
+                this.activeShift = await response.json();
+                console.log('Shift started:', this.activeShift);
+            }
         } catch (error) {
-            console.error('Open shift error:', error);
-            alert('Ошибка открытия смены');
-        }
-    },
-
-    async closeShift() {
-        if (!confirm('Закрыть смену?')) return;
-        
-        try {
-            const response = await API.call('/api/warehouse/shifts/close', {
-                method: 'POST'
-            });
-            
-            if (!response) return;
-            
-            alert('Смена закрыта');
-            this.activeShift = null;
-            this.cart = [];
-            this.renderPOS();
-        } catch (error) {
-            console.error('Close shift error:', error);
-            alert('Ошибка закрытия смены');
+            console.error('Start shift error:', error);
         }
     },
 
     renderPOS() {
-        if (!this.activeShift) {
-            document.getElementById('posContent').innerHTML = `
-                <div class="loading" style="text-align: center; padding: 100px;">
-                    <h2>Смена не открыта</h2>
-                    <p>Для начала работы откройте смену</p>
-                    <button class="btn" onclick="POS.openShift()">Открыть смену</button>
-                </div>
-            `;
-            return;
-        }
-
         document.getElementById('posContent').innerHTML = `
             <div class="pos-container">
                 <div class="pos-left">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px; align-items: center;">
-                        <div style="font-size: 12px; color: #888;">
-                            Смена открыта: ${Utils.formatDateTime(this.activeShift.start_time)}
-                        </div>
-                        <button class="btn" style="padding: 5px 10px; font-size: 12px;" onclick="POS.closeShift()">Закрыть смену</button>
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <input type="text" id="posSearch" placeholder="Поиск товаров..." 
+                               class="pos-search" style="flex: 1;" oninput="POS.search()">
+                        ${this.activeShift ? 
+                            `<button class="pos-btn pos-btn-clear" onclick="POS.showShiftInfo()">
+                                📊 Смена #${this.activeShift.id}
+                            </button>` : ''
+                        }
                     </div>
-                    <input type="text" id="posSearch" placeholder="Поиск товаров..." 
-                           class="pos-search" oninput="POS.search()">
                     <div id="posBreadcrumb" class="pos-breadcrumb"></div>
                     <div id="posItemsList" class="pos-items-list"></div>
                 </div>
                 <div class="pos-right">
-                    <div class="pos-receipt-header">
-                        <span>Текущая продажа</span>
-                        <select id="posCurrency" onchange="POS.changeCurrency()" style="padding: 5px; border-radius: 4px; background: #2d2d2d; border: 1px solid #444; color: white;">
-                            <option value="GEL" ${this.currency === 'GEL' ? 'selected' : ''}>GEL</option>
-                            <option value="USD" ${this.currency === 'USD' ? 'selected' : ''}>USD</option>
-                            <option value="EUR" ${this.currency === 'EUR' ? 'selected' : ''}>EUR</option>
-                        </select>
-                    </div>
+                    <div class="pos-receipt-header">Текущая продажа</div>
                     <div id="posReceiptItems" class="pos-receipt-items"></div>
                     <div id="posTotals" class="pos-totals"></div>
                     <div class="pos-actions">
@@ -113,8 +73,26 @@ const POS = {
         this.renderCart();
     },
 
-    changeCurrency() {
-        this.currency = document.getElementById('posCurrency').value;
+    async showShiftInfo() {
+        if (!this.activeShift) return;
+        
+        try {
+            const response = await API.call(`/api/pos/stats/shift/${this.activeShift.id}`);
+            if (response && response.ok) {
+                const stats = await response.json();
+                alert(`
+Смена #${stats.id}
+Начало: ${new Date(stats.start_time).toLocaleString('ru-RU')}
+Продаж: ${stats.total_receipts}
+Отменено: ${stats.cancelled_receipts}
+Выручка: ${parseFloat(stats.total_sales || 0).toFixed(2)} GEL
+Товаров продано: ${stats.total_items_sold}
+Прибыль: ${parseFloat(stats.profit || 0).toFixed(2)} GEL
+                `.trim());
+            }
+        } catch (error) {
+            console.error('Get shift stats error:', error);
+        }
     },
 
     async loadCategories() {
@@ -166,12 +144,16 @@ const POS = {
         
         if (this.currentCategoryId) {
             const category = this.categories.find(c => c.id === this.currentCategoryId);
-            breadcrumbHTML += `<div class="pos-breadcrumb-item" onclick="POS.loadSubcategories(${this.currentCategoryId})">${category.name}</div>`;
+            if (category) {
+                breadcrumbHTML += `<div class="pos-breadcrumb-item" onclick="POS.loadSubcategories(${this.currentCategoryId})">${category.name}</div>`;
+            }
         }
         
         if (this.currentSubcategoryId) {
             const subcategory = this.subcategories.find(s => s.id === this.currentSubcategoryId);
-            breadcrumbHTML += `<div class="pos-breadcrumb-item">${subcategory.name}</div>`;
+            if (subcategory) {
+                breadcrumbHTML += `<div class="pos-breadcrumb-item">${subcategory.name}</div>`;
+            }
         }
         
         document.getElementById('posBreadcrumb').innerHTML = breadcrumbHTML;
@@ -205,14 +187,15 @@ const POS = {
                 const stockClass = prod.total_quantity <= 0 ? 'out' : 
                                   prod.total_quantity <= prod.min_stock_level ? 'low' : '';
                 return `
-                    <div class="pos-item" onclick='POS.addToCart(${JSON.stringify(prod).replace(/'/g, "&apos;")})'>
+                    <div class="pos-item ${prod.total_quantity <= 0 ? 'disabled' : ''}" 
+                         onclick='${prod.total_quantity > 0 ? `POS.addToCart(${JSON.stringify(prod).replace(/'/g, "\\'")})` : ""}'>
                         <div class="pos-item-info">
                             <div class="pos-item-name">${prod.name}</div>
                             <div class="pos-item-stock ${stockClass}">
                                 На складе: ${prod.total_quantity || 0}
                             </div>
                         </div>
-                        <div class="pos-item-price">+</div>
+                        <div class="pos-item-price">${prod.total_quantity > 0 ? '+' : '✕'}</div>
                     </div>
                 `;
             }).join('');
@@ -238,14 +221,15 @@ const POS = {
                 const stockClass = prod.total_quantity <= 0 ? 'out' : 
                                   prod.total_quantity <= prod.min_stock_level ? 'low' : '';
                 return `
-                    <div class="pos-item" onclick='POS.addToCart(${JSON.stringify(prod).replace(/'/g, "&apos;")})'>
+                    <div class="pos-item ${prod.total_quantity <= 0 ? 'disabled' : ''}" 
+                         onclick='${prod.total_quantity > 0 ? `POS.addToCart(${JSON.stringify(prod).replace(/'/g, "\\'")})` : ""}'>
                         <div class="pos-item-info">
                             <div class="pos-item-name">${prod.name}</div>
                             <div class="pos-item-stock ${stockClass}">
                                 На складе: ${prod.total_quantity || 0}
                             </div>
                         </div>
-                        <div class="pos-item-price">+</div>
+                        <div class="pos-item-price">${prod.total_quantity > 0 ? '+' : '✕'}</div>
                     </div>
                 `;
             }).join('');
@@ -271,7 +255,7 @@ const POS = {
             this.cart.push({ 
                 ...product, 
                 quantity: 1,
-                sale_price: 0
+                salePrice: 0
             });
         }
         
@@ -302,7 +286,7 @@ const POS = {
     updatePrice(productId, price) {
         const item = this.cart.find(i => i.id === productId);
         if (item) {
-            item.sale_price = parseFloat(price) || 0;
+            item.salePrice = parseFloat(price) || 0;
             this.renderCart();
         }
     },
@@ -329,15 +313,15 @@ const POS = {
                     </div>
                     <div>
                         <input type="number" placeholder="Цена" step="0.01" style="width: 80px; padding: 5px;"
-                               value="${item.sale_price}" 
+                               value="${item.salePrice}" 
                                onchange="POS.updatePrice(${item.id}, this.value)">
                     </div>
-                    <span class="pos-receipt-item-total">${(item.quantity * item.sale_price).toFixed(2)}</span>
+                    <span class="pos-receipt-item-total">${(item.quantity * item.salePrice).toFixed(2)}</span>
                 </div>
             </div>
         `).join('');
         
-        const total = this.cart.reduce((sum, item) => sum + (item.quantity * item.sale_price), 0);
+        const total = this.cart.reduce((sum, item) => sum + (item.quantity * item.salePrice), 0);
         
         let totalsHTML = `
             <div class="pos-total-row">
@@ -345,8 +329,8 @@ const POS = {
                 <span>Кол-во: ${this.cart.reduce((sum, item) => sum + item.quantity, 0)}</span>
             </div>
             <div class="pos-total-row final">
-                <span>ИТОГО ${this.currency}:</span>
-                <span>${total.toFixed(2)}</span>
+                <span>ИТОГО:</span>
+                <span>${total.toFixed(2)} GEL</span>
             </div>
         `;
         
@@ -369,7 +353,7 @@ const POS = {
             return;
         }
         
-        const itemsWithoutPrice = this.cart.filter(item => !item.sale_price || item.sale_price <= 0);
+        const itemsWithoutPrice = this.cart.filter(item => !item.salePrice || item.salePrice <= 0);
         if (itemsWithoutPrice.length > 0) {
             alert('Укажите цену для всех товаров');
             return;
@@ -380,37 +364,32 @@ const POS = {
         }
         
         try {
-            const saleData = {
-                currency: this.currency,
-                items: this.cart.map(item => ({
-                    product_id: item.id,
-                    product_name: item.name,
-                    quantity: item.quantity,
-                    sale_price: item.sale_price
-                }))
-            };
-            
-            const response = await API.call('/api/warehouse/sales', {
+            const response = await API.call('/api/pos/sale', {
                 method: 'POST',
-                body: JSON.stringify(saleData)
+                body: JSON.stringify({
+                    items: this.cart,
+                    currency: 'GEL'
+                })
             });
             
             if (response && response.ok) {
-                const receipt = await response.json();
-                alert(`Продажа завершена!\nЧек №${receipt.id}\nСумма: ${receipt.total_amount} ${receipt.currency}`);
+                const result = await response.json();
+                alert(`✅ Продажа завершена!\nЧек #${result.receipt.id}\nСумма: ${result.receipt.total_amount} GEL`);
                 
                 this.cart = [];
                 this.renderCart();
                 
-                // Обновляем активную смену
-                await this.checkActiveShift();
+                // Reload products to update stock
+                if (this.currentView === 'products' && this.currentSubcategoryId) {
+                    await this.loadProducts(this.currentSubcategoryId);
+                }
             } else {
                 const error = await response.json();
                 alert('Ошибка: ' + (error.error || 'Не удалось завершить продажу'));
             }
         } catch (error) {
             console.error('Complete sale error:', error);
-            alert('Ошибка при завершении продажи');
+            alert('Ошибка при завершении продажи: ' + error.message);
         }
     }
 };
