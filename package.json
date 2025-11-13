@@ -2,10 +2,10 @@
   "name": "wgauto-crm",
   "version": "2.0.0",
   "description": "WGauto CRM System - car rental, warehouse, and POS system",
-  "main": "server.js",
+  "main": "server/server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node server/server.js",
+    "dev": "nodemon server/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "engines": {
