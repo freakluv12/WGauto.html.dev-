@@ -26,7 +26,7 @@ const carsRoutes = require('./routes/cars');
 const rentalsRoutes = require('./routes/rentals');
 const warehouseRoutes = require('./routes/warehouse');
 const adminRoutes = require('./routes/admin');
-const posRoutes = require('./routes/pos'); // НОВЫЙ ИМПОРТ
+const posRoutes = require('./routes/pos');
 
 // Use routes
 app.use('/api/auth', authRoutes);
@@ -34,7 +34,7 @@ app.use('/api/cars', carsRoutes);
 app.use('/api/rentals', rentalsRoutes);
 app.use('/api/warehouse', warehouseRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/pos', posRoutes); // НОВЫЙ РОУТ
+app.use('/api/pos', posRoutes);
 
 // Dashboard stats endpoint
 app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
@@ -100,6 +100,7 @@ app.get('/', (req, res) => {
 
 // Fallback для SPA (если используете клиентский роутинг)
 app.get('*', (req, res) => {
+    // Если запрос не к API, отдаем index.html
     if (!req.path.startsWith('/api')) {
         res.sendFile(path.join(__dirname, '../public/index.html'));
     } else {
