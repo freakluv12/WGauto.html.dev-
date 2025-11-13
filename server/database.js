@@ -247,27 +247,27 @@ async function initDB() {
             CREATE INDEX IF NOT EXISTS idx_sale_items_analytics ON sale_items(product_id, quantity, sale_price, cost_price);
         `);
 
-        // Create view for inventory sales (replaces old table)
-        await pool.query(`
-            CREATE OR REPLACE VIEW inventory_sales AS
-            SELECT 
-                si.id,
-                si.product_id,
-                si.quantity,
-                si.sale_price,
-                si.cost_price,
-                si.currency,
-                r.sale_time as sale_date,
-                r.shift_id,
-                r.user_id,
-                r.is_cancelled
-            FROM sale_items si
-            JOIN receipts r ON si.receipt_id = r.id
-            WHERE r.is_cancelled = false;
-        `);
+// Drop old inventory_sales table if exists (до создания VIEW)
+await pool.query(`DROP TABLE IF EXISTS inventory_sales CASCADE;`);
 
-        // Drop old inventory_sales table if exists
-        await pool.query(`DROP TABLE IF EXISTS inventory_sales CASCADE;`);
+// Create view for inventory sales (replaces old table)
+await pool.query(`
+    CREATE OR REPLACE VIEW inventory_sales AS
+    SELECT 
+        si.id,
+        si.product_id,
+        si.quantity,
+        si.sale_price,
+        si.cost_price,
+        si.currency,
+        r.sale_time as sale_date,
+        r.shift_id,
+        r.user_id,
+        r.is_cancelled
+    FROM sale_items si
+    JOIN receipts r ON si.receipt_id = r.id
+    WHERE r.is_cancelled = false;
+`);
 
         // View for products with stock
         await pool.query(`
