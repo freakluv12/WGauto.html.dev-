@@ -1,11 +1,12 @@
 // server/server.js
 const express = require('express');
+const path = require('path'); // ← Добавить!
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, '../public'))); // ← Исправить!
 
 // Database initialization
 const { initDB } = require('./database');
@@ -86,16 +87,32 @@ app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
 });
 
 // Health check
-app.get('/', (req, res) => {
+app.get('/health', (req, res) => {
     res.send('WGauto CRM Server is running');
 });
 
+// Главная страница - отдаем index.html
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+
+// Fallback для SPA (если используете клиентский роутинг)
+app.get('*', (req, res) => {
+    // Если запрос не к API, отдаем index.html
+    if (!req.path.startsWith('/api')) {
+        res.sendFile(path.join(__dirname, '../public/index.html'));
+    } else {
+        res.status(404).json({ error: 'API endpoint not found' });
+    }
+});
+
 // Start server
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => { // ← Добавил '0.0.0.0'
     console.log('='.repeat(60));
     console.log(`🚀 WGauto CRM Server running on port ${port}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`📡 Server: http://localhost:${port}`);
+    console.log(`📁 Static files: ${path.join(__dirname, '../public')}`);
     console.log('='.repeat(60));
 });
 
