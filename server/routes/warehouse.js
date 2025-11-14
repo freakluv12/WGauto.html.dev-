@@ -395,29 +395,30 @@ router.get('/analytics', authenticateToken, async (req, res) => {
         
         const result = await pool.query(query, params);
         
+        // ИСПРАВЛЕННАЯ ЧАСТЬ - строка 235 была здесь
         const totals = result.rows.reduce((acc, row) => {
-            const curr = row.currency || 'USD';
-            if (!acc[curr]) {
-                acc[curr] = {
-                    currency: curr,
+            const currencyValue = row.currency || 'USD';
+            if (!acc[currencyValue]) {
+                acc[currencyValue] = {
+                    currency: currencyValue,
                     total_sold: 0,
                     total_revenue: 0,
                     total_cost: 0,
                     net_profit: 0
                 };
             }
-            acc[curr].total_sold += parseInt(row.total_sold || 0);
-            acc[curr].total_revenue += parseFloat(row.total_revenue || 0);
-            acc[curr].total_cost += parseFloat(row.total_cost || 0);
-            acc[curr].net_profit += parseFloat(row.net_profit || 0);
+            acc[currencyValue].total_sold += parseInt(row.total_sold || 0);
+            acc[currencyValue].total_revenue += parseFloat(row.total_revenue || 0);
+            acc[currencyValue].total_cost += parseFloat(row.total_cost || 0);
+            acc[currencyValue].net_profit += parseFloat(row.net_profit || 0);
             return acc;
         }, {});
         
-        Object.keys(totals).forEach(curr => {
-            if (totals[curr].total_cost > 0) {
-                totals[curr].profit_margin_percent = (totals[curr].net_profit / totals[curr].total_cost * 100).toFixed(2);
+        Object.keys(totals).forEach(currencyKey => {
+            if (totals[currencyKey].total_cost > 0) {
+                totals[currencyKey].profit_margin_percent = (totals[currencyKey].net_profit / totals[currencyKey].total_cost * 100).toFixed(2);
             } else {
-                totals[curr].profit_margin_percent = 0;
+                totals[currencyKey].profit_margin_percent = 0;
             }
         });
         
