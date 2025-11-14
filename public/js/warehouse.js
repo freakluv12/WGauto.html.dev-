@@ -1,3 +1,4 @@
+// ==================== WAREHOUSE MODULE ====================
 const Warehouse = {
     currentCategoryId: null,
     currentSubcategoryId: null,
@@ -18,6 +19,7 @@ const Warehouse = {
             <div class="warehouse-action-bar">
                 <button class="btn" onclick="Warehouse.showAction('stock')">📦 Склад</button>
                 <button class="btn" onclick="Warehouse.showAction('receive')">📥 Оприходование</button>
+                <button class="btn" onclick="Warehouse.showAction('sell')">💰 Продажа</button>
                 <button class="btn" onclick="Warehouse.showAction('analytics')">📊 Аналитика</button>
             </div>
             <div id="warehouseMainContent"></div>
@@ -79,45 +81,10 @@ const Warehouse = {
             <button class="btn" onclick="Warehouse.addProduct()">Добавить товар</button>
         `);
 
-        // Receive Inventory Modal
-        modalsContainer.innerHTML += Utils.createModal('receiveInventoryModal', 'Оприходовать товар', `
-            <div class="form-group">
-                <label>Выберите товар</label>
-                <select id="receiveProductSelect" required>
-                    <option value="">-- Выберите товар --</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Количество</label>
-                <input type="number" id="receiveQuantity" min="1" value="1" required>
-            </div>
-            <div class="form-group">
-                <label>Цена закупки (за единицу)</label>
-                <input type="number" id="receivePurchasePrice" step="0.01" min="0">
-            </div>
-            <div class="form-group">
-                <label>Рекомендуемая цена продажи</label>
-                <input type="number" id="receiveSalePrice" step="0.01" min="0">
-            </div>
-            <div class="form-group">
-                <label>Валюта</label>
-                <select id="receiveCurrency">
-                    <option value="GEL">GEL</option>
-                    <option value="USD">USD</option>
-                    <option value="EUR">EUR</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Место хранения</label>
-                <input type="text" id="receiveLocation" placeholder="Полка A1">
-            </div>
-            <button class="btn" onclick="Warehouse.receiveInventory()">Оприходовать</button>
-        `);
-
-        // Product Details Modal
+        // Product Details Modal - УЛУЧШЕННЫЙ с редактированием цен
         modalsContainer.innerHTML += `
             <div id="productDetailsModal" class="modal">
-                <div class="modal-content">
+                <div class="modal-content" style="max-width: 900px;">
                     <span class="close" onclick="Utils.closeModal('productDetailsModal')">&times;</span>
                     <h2 id="productDetailsName">Product Details</h2>
                     <div style="margin-bottom: 20px; padding: 15px; background: #3d3d3d; border-radius: 8px;">
@@ -125,7 +92,52 @@ const Warehouse = {
                         <p><strong>Всего на складе:</strong> <span id="productDetailsTotal" style="font-weight: bold; color: #4CAF50;"></span></p>
                     </div>
 
-                    <h3>Складские позиции</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3 style="margin: 0;">Складские позиции</h3>
+                        <button class="btn" onclick="Warehouse.showAddInventoryForm()">+ Добавить товар на склад</button>
+                    </div>
+                    
+                    <div id="addInventoryForm" style="display: none; background: #2d2d2d; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                        <h4>Оприходовать товар</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div class="form-group">
+                                <label>Количество</label>
+                                <input type="number" id="invQuantity" min="1" value="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Цена закупки</label>
+                                <input type="number" id="invPurchasePrice" step="0.01" placeholder="0.00">
+                            </div>
+                            <div class="form-group">
+                                <label>Цена продажи 💰</label>
+                                <input type="number" id="invSalePrice" step="0.01" placeholder="0.00" style="border: 2px solid #4CAF50;">
+                            </div>
+                            <div class="form-group">
+                                <label>Валюта</label>
+                                <select id="invCurrency">
+                                    <option value="GEL">GEL (₾)</option>
+                                    <option value="USD">USD ($)</option>
+                                    <option value="EUR">EUR (€)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Место хранения</label>
+                                <input type="text" id="invLocation" placeholder="Склад А, Полка 1">
+                            </div>
+                            <div class="form-group">
+                                <label>Источник</label>
+                                <select id="invSourceType">
+                                    <option value="purchased">Закупка</option>
+                                    <option value="dismantled">Разобран</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 15px;">
+                            <button class="btn" onclick="Warehouse.addInventory()">Добавить</button>
+                            <button class="btn btn-secondary" onclick="Warehouse.hideAddInventoryForm()">Отмена</button>
+                        </div>
+                    </div>
+
                     <table class="table" id="productInventoryTable">
                         <thead>
                             <tr>
@@ -134,8 +146,8 @@ const Warehouse = {
                                 <th>Цена закупки</th>
                                 <th>Цена продажи</th>
                                 <th>Место</th>
-                                <th>Дата поступления</th>
-                                <th>На складе</th>
+                                <th>Дата</th>
+                                <th>Действия</th>
                             </tr>
                         </thead>
                         <tbody></tbody>
@@ -194,95 +206,14 @@ const Warehouse = {
                 this.loadCategories();
                 break;
             case 'receive':
-                this.showReceiveModal();
+                alert('Функция оприходования в разработке');
+                break;
+            case 'sell':
+                alert('Функция продажи в разработке');
                 break;
             case 'analytics':
                 this.showAnalyticsModal();
                 break;
-        }
-    },
-
-    async showReceiveModal() {
-        // Load all products for selection
-        try {
-            const categoriesRes = await API.call('/api/warehouse/categories');
-            if (!categoriesRes) return;
-            const categories = await categoriesRes.json();
-            
-            let allProducts = [];
-            for (const cat of categories) {
-                const subRes = await API.call(`/api/warehouse/subcategories/${cat.id}`);
-                if (!subRes) continue;
-                const subs = await subRes.json();
-                
-                for (const sub of subs) {
-                    const prodRes = await API.call(`/api/warehouse/products/${sub.id}`);
-                    if (!prodRes) continue;
-                    const prods = await prodRes.json();
-                    allProducts = allProducts.concat(prods.map(p => ({
-                        ...p,
-                        categoryName: cat.name,
-                        subcategoryName: sub.name
-                    })));
-                }
-            }
-            
-            const select = document.getElementById('receiveProductSelect');
-            select.innerHTML = '<option value="">-- Выберите товар --</option>' + 
-                allProducts.map(p => 
-                    `<option value="${p.id}">${p.categoryName} > ${p.subcategoryName} > ${p.name}</option>`
-                ).join('');
-            
-            Utils.showModal('receiveInventoryModal');
-        } catch (error) {
-            console.error('Load products for receive error:', error);
-            alert('Ошибка загрузки товаров');
-        }
-    },
-
-    async receiveInventory() {
-        const data = {
-            product_id: parseInt(document.getElementById('receiveProductSelect').value),
-            quantity: parseInt(document.getElementById('receiveQuantity').value),
-            purchase_price: parseFloat(document.getElementById('receivePurchasePrice').value) || null,
-            sale_price: parseFloat(document.getElementById('receiveSalePrice').value) || null,
-            currency: document.getElementById('receiveCurrency').value,
-            location: document.getElementById('receiveLocation').value,
-            source_type: 'purchased'
-        };
-        
-        if (!data.product_id) {
-            alert('Выберите товар');
-            return;
-        }
-        
-        if (!data.quantity || data.quantity <= 0) {
-            alert('Укажите количество');
-            return;
-        }
-        
-        try {
-            const response = await API.call('/api/warehouse/inventory/receive', {
-                method: 'POST',
-                body: JSON.stringify(data)
-            });
-            
-            if (response && response.ok) {
-                alert('✅ Товар успешно оприходован!');
-                Utils.closeModal('receiveInventoryModal');
-                Utils.clearForm('receiveInventoryModal');
-                
-                // Reload current view if in products
-                if (this.currentView === 'products' && this.currentSubcategoryId) {
-                    this.loadProducts(this.currentSubcategoryId);
-                }
-            } else {
-                const error = await response.json();
-                alert('Ошибка: ' + (error.error || 'Не удалось оприходовать товар'));
-            }
-        } catch (error) {
-            console.error('Receive inventory error:', error);
-            alert('Ошибка: ' + error.message);
         }
     },
 
@@ -468,6 +399,7 @@ const Warehouse = {
                                 <th>Название</th>
                                 <th>SKU</th>
                                 <th>Остаток</th>
+                                <th>Цена продажи</th>
                                 <th>Мин. уровень</th>
                                 <th>Дата первого поступления</th>
                                 <th>Действия</th>
@@ -481,10 +413,13 @@ const Warehouse = {
                                     <td style="font-weight: bold; color: ${p.total_quantity > p.min_stock_level ? '#4CAF50' : '#f44336'}">
                                         ${p.total_quantity || 0}
                                     </td>
+                                    <td style="font-weight: bold; color: #4CAF50;">
+                                        ${p.default_sale_price ? p.default_sale_price + ' ₾' : 'Не указана'}
+                                    </td>
                                     <td>${p.min_stock_level}</td>
                                     <td>${p.first_received ? Utils.formatDate(p.first_received) : 'N/A'}</td>
                                     <td>
-                                        <button class="btn" onclick="Warehouse.showProductDetails(${p.id})">Детали</button>
+                                        <button class="btn" onclick="Warehouse.showProductDetails(${p.id})">Детали / Цены</button>
                                     </td>
                                 </tr>
                             `).join('')}
@@ -556,14 +491,19 @@ const Warehouse = {
             
             let inventoryHTML = '';
             if (this.inventory.length === 0) {
-                inventoryHTML = '<tr><td colspan="7">Нет остатков на складе</td></tr>';
+                inventoryHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">Нет остатков на складе. Нажмите "+ Добавить товар на склад"</td></tr>';
             } else {
                 inventoryHTML = this.inventory.map(inv => `
                     <tr>
                         <td>${inv.source_name}</td>
                         <td>${inv.quantity}</td>
                         <td>${inv.purchase_price ? Utils.getCurrencySymbol(inv.currency) + inv.purchase_price : 'N/A'}</td>
-                        <td>${inv.sale_price ? Utils.getCurrencySymbol(inv.currency) + inv.sale_price : 'N/A'}</td>
+                        <td>
+                            <input type="number" step="0.01" value="${inv.sale_price || ''}" 
+                                   placeholder="Укажите цену" 
+                                   style="width: 100px; padding: 5px; background: #3d3d3d; border: 1px solid #4CAF50; color: #fff; border-radius: 4px;"
+                                   onchange="Warehouse.updateInventoryPrice(${inv.id}, this.value)">
+                        </td>
                         <td>${inv.location || 'N/A'}</td>
                         <td>${Utils.formatDate(inv.received_date)}</td>
                         <td>${inv.days_in_storage} дней</td>
@@ -580,6 +520,85 @@ const Warehouse = {
             Utils.showModal('productDetailsModal');
         } catch (error) {
             console.error('Show product details error:', error);
+        }
+    },
+
+    showAddInventoryForm() {
+        document.getElementById('addInventoryForm').style.display = 'block';
+    },
+
+    hideAddInventoryForm() {
+        document.getElementById('addInventoryForm').style.display = 'none';
+    },
+
+    async addInventory() {
+        const data = {
+            product_id: this.currentProductId,
+            source_type: document.getElementById('invSourceType').value,
+            quantity: parseInt(document.getElementById('invQuantity').value),
+            purchase_price: parseFloat(document.getElementById('invPurchasePrice').value) || null,
+            sale_price: parseFloat(document.getElementById('invSalePrice').value) || null,
+            currency: document.getElementById('invCurrency').value,
+            location: document.getElementById('invLocation').value
+        };
+
+        if (!data.quantity || data.quantity <= 0) {
+            alert('Укажите корректное количество');
+            return;
+        }
+
+        try {
+            const response = await API.call('/api/warehouse/inventory/receive', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            if (response && response.ok) {
+                alert('Товар успешно добавлен на склад!');
+                this.hideAddInventoryForm();
+                // Обновляем детали продукта
+                this.showProductDetails(this.currentProductId);
+                // Обновляем список продуктов
+                this.loadProducts(this.currentSubcategoryId);
+            } else {
+                alert('Ошибка добавления товара на склад');
+            }
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    },
+
+    async updateInventoryPrice(inventoryId, newPrice) {
+        const price = parseFloat(newPrice);
+        if (isNaN(price) || price < 0) {
+            alert('Некорректная цена');
+            return;
+        }
+
+        try {
+            // Создаем роут для обновления цены
+            const response = await fetch('/api/warehouse/inventory/update-price', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                    inventory_id: inventoryId,
+                    sale_price: price
+                })
+            });
+
+            if (response.ok) {
+                console.log('Price updated successfully');
+                // Обновляем список продуктов чтобы показать новую цену
+                this.loadProducts(this.currentSubcategoryId);
+            } else {
+                alert('Ошибка обновления цены');
+            }
+        } catch (error) {
+            console.error('Update price error:', error);
+            alert('Ошибка: ' + error.message);
         }
     },
 
@@ -656,7 +675,7 @@ const Warehouse = {
                 });
             }
             
-            document.getElementById('analyticsTotals').innerHTML = totalsHTML || '<p>Нет данных за выбранный период</p>';
+            document.getElementById('analyticsTotals').innerHTML = totalsHTML;
             
         } catch (error) {
             console.error('Analytics error:', error);
