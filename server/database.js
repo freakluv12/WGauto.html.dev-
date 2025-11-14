@@ -1,6 +1,13 @@
+require('dotenv').config(); // ← ДОБАВЬТЕ ЭТУ СТРОКУ ПЕРВОЙ!
+
 const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
+
+// Проверка что переменные окружения загружены
+console.log('🔍 Checking environment variables:');
+console.log('DATABASE_URL:', process.env.DATABASE_URL ? '✓ SET' : '✗ NOT SET');
+console.log('NODE_ENV:', process.env.NODE_ENV || 'development');
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
