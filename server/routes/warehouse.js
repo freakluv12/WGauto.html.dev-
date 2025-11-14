@@ -1,684 +1,330 @@
-// ==================== WAREHOUSE MODULE ====================
-const Warehouse = {
-    currentCategoryId: null,
-    currentSubcategoryId: null,
-    currentProductId: null,
-    categories: [],
-    subcategories: [],
-    products: [],
-    inventory: [],
+const express = require('express');
+const router = express.Router();
+const { pool } = require('../database');
+const { authenticateToken } = require('../middleware');
 
-    init() {
-        this.createModals();
-        this.renderActionBar();
-        this.loadCategories();
-    },
-
-    renderActionBar() {
-        const actionBar = `
-            <div class="warehouse-action-bar">
-                <button class="btn" onclick="Warehouse.showAction('stock')">📦 Склад</button>
-                <button class="btn" onclick="Warehouse.showAction('receive')">📥 Оприходование</button>
-                <button class="btn" onclick="Warehouse.showAction('sell')">💰 Продажа</button>
-                <button class="btn" onclick="Warehouse.showAction('analytics')">📊 Аналитика</button>
-            </div>
-            <div id="warehouseMainContent"></div>
-        `;
-        document.getElementById('warehouseContent').innerHTML = actionBar;
-    },
-
-    createModals() {
-        const modalsContainer = document.getElementById('modalsContainer');
-
-        // Add Category Modal
-        modalsContainer.innerHTML += Utils.createModal('addCategoryModal', 'Добавить категорию', `
-            <div class="form-group">
-                <label>Название</label>
-                <input type="text" id="categoryName" required>
-            </div>
-            <div class="form-group">
-                <label>Описание</label>
-                <textarea id="categoryDescription" rows="3"></textarea>
-            </div>
-            <div class="form-group">
-                <label>Иконка (emoji)</label>
-                <input type="text" id="categoryIcon" placeholder="📦" maxlength="2">
-            </div>
-            <button class="btn" onclick="Warehouse.addCategory()">Добавить</button>
-        `);
-
-        // Add Subcategory Modal
-        modalsContainer.innerHTML += Utils.createModal('addSubcategoryModal', 'Добавить подкатегорию', `
-            <div class="form-group">
-                <label>Название</label>
-                <input type="text" id="subcategoryName" required>
-            </div>
-            <div class="form-group">
-                <label>Описание</label>
-                <textarea id="subcategoryDescription" rows="3"></textarea>
-            </div>
-            <button class="btn" onclick="Warehouse.addSubcategory()">Добавить</button>
-        `);
-
-        // Add Product Modal
-        modalsContainer.innerHTML += Utils.createModal('addProductModal', 'Добавить товар', `
-            <div class="form-group">
-                <label>Название</label>
-                <input type="text" id="productName" required>
-            </div>
-            <div class="form-group">
-                <label>Описание</label>
-                <textarea id="productDescription" rows="3"></textarea>
-            </div>
-            <div class="form-group">
-                <label>SKU / Артикул</label>
-                <input type="text" id="productSKU">
-            </div>
-            <div class="form-group">
-                <label>Минимальный уровень запаса</label>
-                <input type="number" id="productMinStock" value="0" min="0">
-            </div>
-            <button class="btn" onclick="Warehouse.addProduct()">Добавить товар</button>
-        `);
-
-        // Product Details Modal - УЛУЧШЕННЫЙ с редактированием цен
-        modalsContainer.innerHTML += `
-            <div id="productDetailsModal" class="modal">
-                <div class="modal-content" style="max-width: 900px;">
-                    <span class="close" onclick="Utils.closeModal('productDetailsModal')">&times;</span>
-                    <h2 id="productDetailsName">Product Details</h2>
-                    <div style="margin-bottom: 20px; padding: 15px; background: #3d3d3d; border-radius: 8px;">
-                        <p><strong>SKU:</strong> <span id="productDetailsSKU"></span></p>
-                        <p><strong>Всего на складе:</strong> <span id="productDetailsTotal" style="font-weight: bold; color: #4CAF50;"></span></p>
-                    </div>
-
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                        <h3 style="margin: 0;">Складские позиции</h3>
-                        <button class="btn" onclick="Warehouse.showAddInventoryForm()">+ Добавить товар на склад</button>
-                    </div>
-                    
-                    <div id="addInventoryForm" style="display: none; background: #2d2d2d; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                        <h4>Оприходовать товар</h4>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div class="form-group">
-                                <label>Количество</label>
-                                <input type="number" id="invQuantity" min="1" value="1" required>
-                            </div>
-                            <div class="form-group">
-                                <label>Цена закупки</label>
-                                <input type="number" id="invPurchasePrice" step="0.01" placeholder="0.00">
-                            </div>
-                            <div class="form-group">
-                                <label>Цена продажи 💰</label>
-                                <input type="number" id="invSalePrice" step="0.01" placeholder="0.00" style="border: 2px solid #4CAF50;">
-                            </div>
-                            <div class="form-group">
-                                <label>Валюта</label>
-                                <select id="invCurrency">
-                                    <option value="GEL">GEL (₾)</option>
-                                    <option value="USD">USD ($)</option>
-                                    <option value="EUR">EUR (€)</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Место хранения</label>
-                                <input type="text" id="invLocation" placeholder="Склад А, Полка 1">
-                            </div>
-                            <div class="form-group">
-                                <label>Источник</label>
-                                <select id="invSourceType">
-                                    <option value="purchased">Закупка</option>
-                                    <option value="dismantled">Разобран</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 10px; margin-top: 15px;">
-                            <button class="btn" onclick="Warehouse.addInventory()">Добавить</button>
-                            <button class="btn btn-secondary" onclick="Warehouse.hideAddInventoryForm()">Отмена</button>
-                        </div>
-                    </div>
-
-                    <table class="table" id="productInventoryTable">
-                        <thead>
-                            <tr>
-                                <th>Источник</th>
-                                <th>Количество</th>
-                                <th>Цена закупки</th>
-                                <th>Цена продажи</th>
-                                <th>Место</th>
-                                <th>Дата</th>
-                                <th>Действия</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-            </div>
-        `;
-
-        // Analytics Modal
-        modalsContainer.innerHTML += `
-            <div id="analyticsModal" class="modal">
-                <div class="modal-content" style="max-width: 1000px;">
-                    <span class="close" onclick="Utils.closeModal('analyticsModal')">&times;</span>
-                    <h2>Аналитика продаж</h2>
-                    
-                    <div style="display: flex; gap: 15px; margin-bottom: 20px;">
-                        <div class="form-group" style="flex: 1;">
-                            <label>Начальная дата</label>
-                            <input type="date" id="analyticsStartDate">
-                        </div>
-                        <div class="form-group" style="flex: 1;">
-                            <label>Конечная дата</label>
-                            <input type="date" id="analyticsEndDate">
-                        </div>
-                        <div style="display: flex; align-items: flex-end;">
-                            <button class="btn" onclick="Warehouse.loadAnalytics()">Применить</button>
-                        </div>
-                    </div>
-
-                    <h3>Итоги за период</h3>
-                    <div class="profit-summary" id="analyticsTotals"></div>
-
-                    <h3 style="margin-top: 30px;">Детализация по товарам</h3>
-                    <table class="table" id="analyticsTable">
-                        <thead>
-                            <tr>
-                                <th>Товар</th>
-                                <th>Категория</th>
-                                <th>Продано</th>
-                                <th>Оборот</th>
-                                <th>Себестоимость</th>
-                                <th>Прибыль</th>
-                                <th>Рентабельность</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-            </div>
-        `;
-    },
-
-    showAction(action) {
-        switch(action) {
-            case 'stock':
-                this.loadCategories();
-                break;
-            case 'receive':
-                alert('Функция оприходования в разработке');
-                break;
-            case 'sell':
-                alert('Функция продажи в разработке');
-                break;
-            case 'analytics':
-                this.showAnalyticsModal();
-                break;
-        }
-    },
-
-    async loadCategories() {
-        try {
-            const response = await API.call('/api/warehouse/categories');
-            if (!response) return;
-
-            this.categories = await response.json();
-            this.currentCategoryId = null;
-            this.currentSubcategoryId = null;
-            this.renderCategories();
-        } catch (error) {
-            console.error('Load categories error:', error);
-        }
-    },
-
-    renderCategories() {
-        let html = '';
+// Categories
+router.get('/categories', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.role === 'ADMIN' ? null : req.user.id;
+        const query = userId ? 
+            'SELECT * FROM categories WHERE user_id = $1 ORDER BY name' :
+            'SELECT * FROM categories ORDER BY name';
+        const params = userId ? [userId] : [];
         
-        if (this.categories.length === 0) {
-            html = `
-                <div class="loading">
-                    <p>Нет категорий. Создайте первую категорию.</p>
-                    <button class="btn" onclick="Warehouse.showAddCategoryModal()">+ Добавить категорию</button>
-                </div>
-            `;
-        } else {
-            html = this.categories.map(cat => `
-                <div class="category-card" onclick="Warehouse.loadSubcategories(${cat.id})">
-                    <div class="category-icon">${cat.icon || '📦'}</div>
-                    <div class="category-name">${cat.name}</div>
-                    <div class="category-desc">${cat.description || ''}</div>
-                </div>
-            `).join('');
-        }
-        
-        document.getElementById('warehouseMainContent').innerHTML = `
-            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-                <h3>Категории</h3>
-                <button class="btn" onclick="Warehouse.showAddCategoryModal()">+ Добавить категорию</button>
-            </div>
-            <div class="categories-grid">${html}</div>
-        `;
-    },
-
-    showAddCategoryModal() {
-        Utils.showModal('addCategoryModal');
-    },
-
-    async addCategory() {
-        const data = {
-            name: document.getElementById('categoryName').value,
-            description: document.getElementById('categoryDescription').value,
-            icon: document.getElementById('categoryIcon').value || '📦'
-        };
-        
-        if (!data.name) {
-            alert('Название обязательно');
-            return;
-        }
-        
-        try {
-            const response = await API.call('/api/warehouse/categories', {
-                method: 'POST',
-                body: JSON.stringify(data)
-            });
-            
-            if (response && response.ok) {
-                Utils.closeModal('addCategoryModal');
-                Utils.clearForm('addCategoryModal');
-                this.loadCategories();
-            } else {
-                alert('Failed to add category');
-            }
-        } catch (error) {
-            alert('Error: ' + error.message);
-        }
-    },
-
-    async loadSubcategories(categoryId) {
-        this.currentCategoryId = categoryId;
-        this.currentSubcategoryId = null;
-        
-        try {
-            const response = await API.call(`/api/warehouse/subcategories/${categoryId}`);
-            if (!response) return;
-
-            this.subcategories = await response.json();
-            const category = this.categories.find(c => c.id === categoryId);
-            
-            let html = '';
-            if (this.subcategories.length === 0) {
-                html = `
-                    <div class="loading">
-                        <p>Нет подкатегорий в ${category.name}. Добавьте одну.</p>
-                        <button class="btn" onclick="Warehouse.showAddSubcategoryModal()">+ Добавить подкатегорию</button>
-                    </div>
-                `;
-            } else {
-                html = this.subcategories.map(sub => `
-                    <div class="category-card" onclick="Warehouse.loadProducts(${sub.id})">
-                        <div class="category-icon">📋</div>
-                        <div class="category-name">${sub.name}</div>
-                        <div class="category-desc">${sub.description || ''}</div>
-                    </div>
-                `).join('');
-            }
-            
-            document.getElementById('warehouseMainContent').innerHTML = `
-                <div style="margin-bottom: 20px;">
-                    <button class="btn" onclick="Warehouse.loadCategories()">← Назад к категориям</button>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-                    <h3>${category.name} - Подкатегории</h3>
-                    <button class="btn" onclick="Warehouse.showAddSubcategoryModal()">+ Добавить подкатегорию</button>
-                </div>
-                <div class="categories-grid">${html}</div>
-            `;
-        } catch (error) {
-            console.error('Load subcategories error:', error);
-        }
-    },
-
-    showAddSubcategoryModal() {
-        Utils.showModal('addSubcategoryModal');
-    },
-
-    async addSubcategory() {
-        const data = {
-            category_id: this.currentCategoryId,
-            name: document.getElementById('subcategoryName').value,
-            description: document.getElementById('subcategoryDescription').value
-        };
-        
-        if (!data.name) {
-            alert('Название обязательно');
-            return;
-        }
-        
-        try {
-            const response = await API.call('/api/warehouse/subcategories', {
-                method: 'POST',
-                body: JSON.stringify(data)
-            });
-            
-            if (response && response.ok) {
-                Utils.closeModal('addSubcategoryModal');
-                Utils.clearForm('addSubcategoryModal');
-                this.loadSubcategories(this.currentCategoryId);
-            } else {
-                alert('Failed to add subcategory');
-            }
-        } catch (error) {
-            alert('Error: ' + error.message);
-        }
-    },
-
-    async loadProducts(subcategoryId) {
-        this.currentSubcategoryId = subcategoryId;
-        
-        try {
-            const response = await API.call(`/api/warehouse/products/${subcategoryId}`);
-            if (!response) return;
-
-            this.products = await response.json();
-            const subcategory = this.subcategories.find(s => s.id === subcategoryId);
-            const category = this.categories.find(c => c.id === this.currentCategoryId);
-            
-            let html = '';
-            if (this.products.length === 0) {
-                html = `
-                    <div class="loading">
-                        <p>Нет товаров в ${subcategory.name}. Добавьте товар.</p>
-                        <button class="btn" onclick="Warehouse.showAddProductModal()">+ Добавить товар</button>
-                    </div>
-                `;
-            } else {
-                html = `
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Название</th>
-                                <th>SKU</th>
-                                <th>Остаток</th>
-                                <th>Цена продажи</th>
-                                <th>Мин. уровень</th>
-                                <th>Дата первого поступления</th>
-                                <th>Действия</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${this.products.map(p => `
-                                <tr>
-                                    <td>${p.name}</td>
-                                    <td>${p.sku || 'N/A'}</td>
-                                    <td style="font-weight: bold; color: ${p.total_quantity > p.min_stock_level ? '#4CAF50' : '#f44336'}">
-                                        ${p.total_quantity || 0}
-                                    </td>
-                                    <td style="font-weight: bold; color: #4CAF50;">
-                                        ${p.default_sale_price ? p.default_sale_price + ' ₾' : 'Не указана'}
-                                    </td>
-                                    <td>${p.min_stock_level}</td>
-                                    <td>${p.first_received ? Utils.formatDate(p.first_received) : 'N/A'}</td>
-                                    <td>
-                                        <button class="btn" onclick="Warehouse.showProductDetails(${p.id})">Детали / Цены</button>
-                                    </td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                `;
-            }
-            
-            document.getElementById('warehouseMainContent').innerHTML = `
-                <div style="margin-bottom: 20px;">
-                    <button class="btn" onclick="Warehouse.loadSubcategories(${this.currentCategoryId})">← Назад к ${category.name}</button>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-                    <h3>${category.name} > ${subcategory.name}</h3>
-                    <button class="btn" onclick="Warehouse.showAddProductModal()">+ Добавить товар</button>
-                </div>
-                ${html}
-            `;
-        } catch (error) {
-            console.error('Load products error:', error);
-        }
-    },
-
-    showAddProductModal() {
-        Utils.showModal('addProductModal');
-    },
-
-    async addProduct() {
-        const data = {
-            subcategory_id: this.currentSubcategoryId,
-            name: document.getElementById('productName').value,
-            description: document.getElementById('productDescription').value,
-            sku: document.getElementById('productSKU').value,
-            min_stock_level: parseInt(document.getElementById('productMinStock').value) || 0
-        };
-        
-        if (!data.name) {
-            alert('Название обязательно');
-            return;
-        }
-        
-        try {
-            const response = await API.call('/api/warehouse/products', {
-                method: 'POST',
-                body: JSON.stringify(data)
-            });
-            
-            if (response && response.ok) {
-                Utils.closeModal('addProductModal');
-                Utils.clearForm('addProductModal');
-                this.loadProducts(this.currentSubcategoryId);
-            } else {
-                alert('Failed to add product');
-            }
-        } catch (error) {
-            alert('Error: ' + error.message);
-        }
-    },
-
-    async showProductDetails(productId) {
-        this.currentProductId = productId;
-        
-        try {
-            const response = await API.call(`/api/warehouse/inventory/${productId}`);
-            if (!response) return;
-
-            this.inventory = await response.json();
-            const product = this.products.find(p => p.id === productId);
-            
-            let inventoryHTML = '';
-            if (this.inventory.length === 0) {
-                inventoryHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">Нет остатков на складе. Нажмите "+ Добавить товар на склад"</td></tr>';
-            } else {
-                inventoryHTML = this.inventory.map(inv => `
-                    <tr>
-                        <td>${inv.source_name}</td>
-                        <td>${inv.quantity}</td>
-                        <td>${inv.purchase_price ? Utils.getCurrencySymbol(inv.currency) + inv.purchase_price : 'N/A'}</td>
-                        <td>
-                            <input type="number" step="0.01" value="${inv.sale_price || ''}" 
-                                   placeholder="Укажите цену" 
-                                   style="width: 100px; padding: 5px; background: #3d3d3d; border: 1px solid #4CAF50; color: #fff; border-radius: 4px;"
-                                   onchange="Warehouse.updateInventoryPrice(${inv.id}, this.value)">
-                        </td>
-                        <td>${inv.location || 'N/A'}</td>
-                        <td>${Utils.formatDate(inv.received_date)}</td>
-                        <td>${inv.days_in_storage} дней</td>
-                    </tr>
-                `).join('');
-            }
-            
-            document.getElementById('productDetailsName').textContent = product.name;
-            document.getElementById('productDetailsSKU').textContent = product.sku || 'N/A';
-            document.getElementById('productDetailsTotal').textContent = product.total_quantity || 0;
-            
-            document.querySelector('#productInventoryTable tbody').innerHTML = inventoryHTML;
-            
-            Utils.showModal('productDetailsModal');
-        } catch (error) {
-            console.error('Show product details error:', error);
-        }
-    },
-
-    showAddInventoryForm() {
-        document.getElementById('addInventoryForm').style.display = 'block';
-    },
-
-    hideAddInventoryForm() {
-        document.getElementById('addInventoryForm').style.display = 'none';
-    },
-
-    async addInventory() {
-        const data = {
-            product_id: this.currentProductId,
-            source_type: document.getElementById('invSourceType').value,
-            quantity: parseInt(document.getElementById('invQuantity').value),
-            purchase_price: parseFloat(document.getElementById('invPurchasePrice').value) || null,
-            sale_price: parseFloat(document.getElementById('invSalePrice').value) || null,
-            currency: document.getElementById('invCurrency').value,
-            location: document.getElementById('invLocation').value
-        };
-
-        if (!data.quantity || data.quantity <= 0) {
-            alert('Укажите корректное количество');
-            return;
-        }
-
-        try {
-            const response = await API.call('/api/warehouse/inventory/receive', {
-                method: 'POST',
-                body: JSON.stringify(data)
-            });
-
-            if (response && response.ok) {
-                alert('Товар успешно добавлен на склад!');
-                this.hideAddInventoryForm();
-                // Обновляем детали продукта
-                this.showProductDetails(this.currentProductId);
-                // Обновляем список продуктов
-                this.loadProducts(this.currentSubcategoryId);
-            } else {
-                alert('Ошибка добавления товара на склад');
-            }
-        } catch (error) {
-            alert('Error: ' + error.message);
-        }
-    },
-
-    async updateInventoryPrice(inventoryId, newPrice) {
-        const price = parseFloat(newPrice);
-        if (isNaN(price) || price < 0) {
-            alert('Некорректная цена');
-            return;
-        }
-
-        try {
-            // Создаем роут для обновления цены
-            const response = await fetch('/api/warehouse/inventory/update-price', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({
-                    inventory_id: inventoryId,
-                    sale_price: price
-                })
-            });
-
-            if (response.ok) {
-                console.log('Price updated successfully');
-                // Обновляем список продуктов чтобы показать новую цену
-                this.loadProducts(this.currentSubcategoryId);
-            } else {
-                alert('Ошибка обновления цены');
-            }
-        } catch (error) {
-            console.error('Update price error:', error);
-            alert('Ошибка: ' + error.message);
-        }
-    },
-
-    showAnalyticsModal() {
-        Utils.showModal('analyticsModal');
-        this.loadAnalytics();
-    },
-
-    async loadAnalytics() {
-        const startDate = document.getElementById('analyticsStartDate').value;
-        const endDate = document.getElementById('analyticsEndDate').value;
-        
-        let url = '/api/warehouse/analytics?';
-        if (startDate) url += `start_date=${startDate}&`;
-        if (endDate) url += `end_date=${endDate}`;
-        
-        try {
-            const response = await API.call(url);
-            if (!response) return;
-            
-            const data = await response.json();
-            
-            let itemsHTML = '';
-            if (data.items.length === 0) {
-                itemsHTML = '<tr><td colspan="7">No sales data for selected period</td></tr>';
-            } else {
-                itemsHTML = data.items.map(item => {
-                    const profitMargin = parseFloat(item.profit_margin_percent || 0).toFixed(2);
-                    return `
-                        <tr>
-                            <td>${item.product_name}</td>
-                            <td>${item.category_name} > ${item.subcategory_name}</td>
-                            <td>${item.total_sold}</td>
-                            <td>${Utils.getCurrencySymbol(item.currency)}${parseFloat(item.total_revenue || 0).toFixed(2)}</td>
-                            <td>${Utils.getCurrencySymbol(item.currency)}${parseFloat(item.total_cost || 0).toFixed(2)}</td>
-                            <td class="${parseFloat(item.net_profit) >= 0 ? 'positive' : 'negative'}">
-                                ${Utils.getCurrencySymbol(item.currency)}${parseFloat(item.net_profit || 0).toFixed(2)}
-                            </td>
-                            <td>${profitMargin}%</td>
-                        </tr>
-                    `;
-                }).join('');
-            }
-            
-            document.querySelector('#analyticsTable tbody').innerHTML = itemsHTML;
-            
-            let totalsHTML = '';
-            if (data.totals && data.totals.length > 0) {
-                data.totals.forEach(total => {
-                    totalsHTML += `
-                        <div class="profit-card">
-                            <div class="currency-label">${total.currency} Всего продано</div>
-                            <div class="amount">${total.total_sold} шт</div>
-                        </div>
-                        <div class="profit-card">
-                            <div class="currency-label">${total.currency} Оборот</div>
-                            <div class="amount positive">${Utils.getCurrencySymbol(total.currency)}${parseFloat(total.total_revenue).toFixed(2)}</div>
-                        </div>
-                        <div class="profit-card">
-                            <div class="currency-label">${total.currency} Себестоимость</div>
-                            <div class="amount">${Utils.getCurrencySymbol(total.currency)}${parseFloat(total.total_cost).toFixed(2)}</div>
-                        </div>
-                        <div class="profit-card">
-                            <div class="currency-label">${total.currency} Чистая прибыль</div>
-                            <div class="amount ${parseFloat(total.net_profit) >= 0 ? 'positive' : 'negative'}">
-                                ${Utils.getCurrencySymbol(total.currency)}${parseFloat(total.net_profit).toFixed(2)}
-                            </div>
-                        </div>
-                        <div class="profit-card">
-                            <div class="currency-label">${total.currency} Рентабельность</div>
-                            <div class="amount">${total.profit_margin_percent}%</div>
-                        </div>
-                    `;
-                });
-            }
-            
-            document.getElementById('analyticsTotals').innerHTML = totalsHTML;
-            
-        } catch (error) {
-            console.error('Analytics error:', error);
-        }
+        const result = await pool.query(query, params);
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Get categories error:', error);
+        res.status(500).json({ error: 'Failed to fetch categories' });
     }
-};
+});
+
+router.post('/categories', authenticateToken, async (req, res) => {
+    try {
+        const { name, description, icon } = req.body;
+        
+        if (!name) {
+            return res.status(400).json({ error: 'Name is required' });
+        }
+        
+        const result = await pool.query(
+            'INSERT INTO categories (name, description, icon, user_id) VALUES ($1, $2, $3, $4) RETURNING *',
+            [name, description || '', icon || '📦', req.user.id]
+        );
+        
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Create category error:', error);
+        res.status(500).json({ error: 'Failed to create category' });
+    }
+});
+
+// Subcategories
+router.get('/subcategories/:categoryId', authenticateToken, async (req, res) => {
+    try {
+        const categoryId = req.params.categoryId;
+        const result = await pool.query(
+            'SELECT * FROM subcategories WHERE category_id = $1 ORDER BY name',
+            [categoryId]
+        );
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Get subcategories error:', error);
+        res.status(500).json({ error: 'Failed to fetch subcategories' });
+    }
+});
+
+router.post('/subcategories', authenticateToken, async (req, res) => {
+    try {
+        const { category_id, name, description } = req.body;
+        
+        if (!category_id || !name) {
+            return res.status(400).json({ error: 'Category ID and name are required' });
+        }
+        
+        const result = await pool.query(
+            'INSERT INTO subcategories (category_id, name, description, user_id) VALUES ($1, $2, $3, $4) RETURNING *',
+            [category_id, name, description || '', req.user.id]
+        );
+        
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Create subcategory error:', error);
+        res.status(500).json({ error: 'Failed to create subcategory' });
+    }
+});
+
+// Products - УЛУЧШЕННЫЙ: возвращает цену из inventory
+router.get('/products/:subcategoryId', authenticateToken, async (req, res) => {
+    try {
+        const subcategoryId = req.params.subcategoryId;
+        
+        const result = await pool.query(`
+            SELECT 
+                p.*,
+                COALESCE(SUM(i.quantity), 0) as total_quantity,
+                MIN(i.received_date) as first_received,
+                (SELECT sale_price FROM inventory WHERE product_id = p.id AND sale_price > 0 LIMIT 1) as default_sale_price
+            FROM products p
+            LEFT JOIN inventory i ON p.id = i.product_id
+            WHERE p.subcategory_id = $1
+            GROUP BY p.id
+            ORDER BY p.name
+        `, [subcategoryId]);
+        
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Get products error:', error);
+        res.status(500).json({ error: 'Failed to fetch products' });
+    }
+});
+
+router.post('/products', authenticateToken, async (req, res) => {
+    try {
+        const { subcategory_id, name, description, sku, min_stock_level } = req.body;
+        
+        if (!subcategory_id || !name) {
+            return res.status(400).json({ error: 'Subcategory ID and name are required' });
+        }
+        
+        const result = await pool.query(
+            'INSERT INTO products (subcategory_id, name, description, sku, min_stock_level, user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+            [subcategory_id, name, description || '', sku || null, min_stock_level || 0, req.user.id]
+        );
+        
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Create product error:', error);
+        res.status(500).json({ error: 'Failed to create product' });
+    }
+});
+
+// Inventory - возвращает с sale_price
+router.get('/inventory/:productId', authenticateToken, async (req, res) => {
+    try {
+        const productId = req.params.productId;
+        
+        const result = await pool.query(`
+            SELECT 
+                i.*,
+                CASE 
+                    WHEN i.source_type = 'dismantled' THEN c.brand || ' ' || c.model || ' ' || COALESCE(c.year::text, '')
+                    ELSE 'Закупка'
+                END as source_name,
+                CURRENT_DATE - i.received_date as days_in_storage
+            FROM inventory i
+            LEFT JOIN cars c ON i.source_type = 'dismantled' AND i.source_id = c.id
+            WHERE i.product_id = $1 AND i.quantity > 0
+            ORDER BY i.received_date
+        `, [productId]);
+        
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Get inventory error:', error);
+        res.status(500).json({ error: 'Failed to fetch inventory' });
+    }
+});
+
+// НОВЫЙ роут: получить inventory по query параметру (для POS)
+router.get('/inventory', authenticateToken, async (req, res) => {
+    try {
+        const { product_id } = req.query;
+        
+        if (!product_id) {
+            return res.status(400).json({ error: 'product_id is required' });
+        }
+        
+        const result = await pool.query(`
+            SELECT 
+                i.*,
+                CASE 
+                    WHEN i.source_type = 'dismantled' THEN c.brand || ' ' || c.model || ' ' || COALESCE(c.year::text, '')
+                    ELSE 'Закупка'
+                END as source_name
+            FROM inventory i
+            LEFT JOIN cars c ON i.source_type = 'dismantled' AND i.source_id = c.id
+            WHERE i.product_id = $1 AND i.quantity > 0
+            ORDER BY i.received_date
+        `, [product_id]);
+        
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Get inventory error:', error);
+        res.status(500).json({ error: 'Failed to fetch inventory' });
+    }
+});
+
+router.post('/inventory/receive', authenticateToken, async (req, res) => {
+    try {
+        const { product_id, source_type, source_id, quantity, purchase_price, sale_price, currency, location } = req.body;
+        
+        if (!product_id || !source_type || !quantity || quantity <= 0) {
+            return res.status(400).json({ error: 'Product, source type, and positive quantity are required' });
+        }
+        
+        const result = await pool.query(
+            `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, sale_price, currency, location, user_id) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+            [product_id, source_type, source_id || null, quantity, purchase_price || null, sale_price || null, currency || 'USD', location || '', req.user.id]
+        );
+        
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Receive inventory error:', error);
+        res.status(500).json({ error: 'Failed to receive inventory' });
+    }
+});
+
+// НОВЫЙ роут: обновить цену продажи в inventory
+router.post('/inventory/update-price', authenticateToken, async (req, res) => {
+    try {
+        const { inventory_id, sale_price } = req.body;
+        
+        if (!inventory_id || sale_price === undefined) {
+            return res.status(400).json({ error: 'inventory_id and sale_price are required' });
+        }
+        
+        const result = await pool.query(
+            'UPDATE inventory SET sale_price = $1 WHERE id = $2 RETURNING *',
+            [sale_price, inventory_id]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Inventory item not found' });
+        }
+        
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Update inventory price error:', error);
+        res.status(500).json({ error: 'Failed to update price' });
+    }
+});
+
+// Analytics
+router.get('/analytics', authenticateToken, async (req, res) => {
+    try {
+        const { start_date, end_date, category_id, subcategory_id } = req.query;
+        const userId = req.user.role === 'ADMIN' ? null : req.user.id;
+        
+        let query = `
+            SELECT 
+                p.id,
+                p.name as product_name,
+                c.name as category_name,
+                sc.name as subcategory_name,
+                COALESCE(SUM(s.quantity), 0) as total_sold,
+                COALESCE(SUM(s.sale_price * s.quantity), 0) as total_revenue,
+                COALESCE(SUM(s.cost_price * s.quantity), 0) as total_cost,
+                COALESCE(SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity), 0) as net_profit,
+                CASE 
+                    WHEN SUM(s.cost_price * s.quantity) > 0 
+                    THEN ((SUM(s.sale_price * s.quantity) - SUM(s.cost_price * s.quantity)) / SUM(s.cost_price * s.quantity) * 100)
+                    ELSE 0 
+                END as profit_margin_percent,
+                s.currency
+            FROM products p
+            JOIN subcategories sc ON p.subcategory_id = sc.id
+            JOIN categories c ON sc.category_id = c.id
+            LEFT JOIN inventory_sales s ON p.id = s.product_id
+        `;
+        
+        let conditions = [];
+        let params = [];
+        let paramCount = 0;
+        
+        if (userId) {
+            paramCount++;
+            conditions.push(`p.user_id = $${paramCount}`);
+            params.push(userId);
+        }
+        
+        if (start_date) {
+            paramCount++;
+            conditions.push(`s.sale_date >= $${paramCount}`);
+            params.push(start_date);
+        }
+        
+        if (end_date) {
+            paramCount++;
+            conditions.push(`s.sale_date <= $${paramCount}`);
+            params.push(end_date);
+        }
+        
+        if (category_id) {
+            paramCount++;
+            conditions.push(`c.id = $${paramCount}`);
+            params.push(category_id);
+        }
+        
+        if (subcategory_id) {
+            paramCount++;
+            conditions.push(`sc.id = $${paramCount}`);
+            params.push(subcategory_id);
+        }
+        
+        if (conditions.length > 0) {
+            query += ' WHERE ' + conditions.join(' AND ');
+        }
+        
+        query += ' GROUP BY p.id, p.name, c.name, sc.name, s.currency ORDER BY total_revenue DESC';
+        
+        const result = await pool.query(query, params);
+        
+        const totals = result.rows.reduce((acc, row) => {
+            const curr = row.currency || 'USD';
+            if (!acc[curr]) {
+                acc[curr] = {
+                    currency: curr,
+                    total_sold: 0,
+                    total_revenue: 0,
+                    total_cost: 0,
+                    net_profit: 0
+                };
+            }
+            acc[curr].total_sold += parseInt(row.total_sold || 0);
+            acc[curr].total_revenue += parseFloat(row.total_revenue || 0);
+            acc[curr].total_cost += parseFloat(row.total_cost || 0);
+            acc[curr].net_profit += parseFloat(row.net_profit || 0);
+            return acc;
+        }, {});
+        
+        Object.keys(totals).forEach(curr => {
+            if (totals[curr].total_cost > 0) {
+                totals[curr].profit_margin_percent = (totals[curr].net_profit / totals[curr].total_cost * 100).toFixed(2);
+            } else {
+                totals[curr].profit_margin_percent = 0;
+            }
+        });
+        
+        res.json({
+            items: result.rows,
+            totals: Object.values(totals)
+        });
+    } catch (error) {
+        console.error('Analytics error:', error);
+        res.status(500).json({ error: 'Failed to fetch analytics' });
+    }
+});
+
+module.exports = router;
