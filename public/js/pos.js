@@ -434,19 +434,44 @@ const POS = {
         
         const finalTotal = total - discountAmount;
         
-        // TODO: Отправить данные на сервер
-        console.log('Sale data:', {
-            items: this.cart,
-            originalTotal: total,
-            discount: discountAmount,
-            finalTotal: finalTotal,
-            discountType: this.discountType
-        });
-        
-        alert(`Продажа завершена!\nИтого: ${finalTotal.toFixed(2)} ₾\n(Скидка: ${discountAmount.toFixed(2)} ₾)`);
-        
-        this.closeDiscountModal();
-        this.cart = [];
-        this.renderCart();
+        // Отправляем данные на сервер
+        try {
+            const saleData = {
+                items: this.cart.map(item => ({
+                    id: item.id,
+                    name: item.name,
+                    quantity: item.quantity,
+                    salePrice: item.salePrice,
+                    purchase_price: item.purchase_price || 0
+                })),
+                discount: discountAmount,
+                final_total: finalTotal
+            };
+            
+            console.log('POS: Sending sale data:', saleData);
+            
+            const response = await API.call('/api/warehouse/pos/complete-sale', {
+                method: 'POST',
+                body: JSON.stringify(saleData)
+            });
+            
+            if (response && response.ok) {
+                const result = await response.json();
+                console.log('POS: Sale completed:', result);
+                
+                alert(`✅ Продажа успешно завершена!\n\nЧек №${result.receipt_id}\nИтого: ${finalTotal.toFixed(2)} ₾\nСкидка: ${discountAmount.toFixed(2)} ₾`);
+                
+                this.closeDiscountModal();
+                this.cart = [];
+                this.renderCart();
+            } else {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Ошибка сохранения продажи');
+            }
+            
+        } catch (error) {
+            console.error('POS: Complete sale error:', error);
+            alert(`❌ Ошибка завершения продажи:\n${error.message}\n\nПроверьте:\n- Достаточно ли товара на складе\n- Соединение с сервером`);
+        }
     }
 };
