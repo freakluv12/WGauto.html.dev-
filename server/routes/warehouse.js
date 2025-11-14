@@ -177,16 +177,16 @@ router.get('/inventory', authenticateToken, async (req, res) => {
 
 router.post('/inventory/receive', authenticateToken, async (req, res) => {
     try {
-        const { product_id, source_type, source_id, quantity, purchase_price, sale_price, currency, location } = req.body;
+        const { product_id, source_type, source_id, quantity, purchase_price, currency, location } = req.body;
         
         if (!product_id || !source_type || !quantity || quantity <= 0) {
             return res.status(400).json({ error: 'Product, source type, and positive quantity are required' });
         }
         
         const result = await pool.query(
-            `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, sale_price, currency, location, user_id) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-            [product_id, source_type, source_id || null, quantity, purchase_price || null, sale_price || null, currency || 'USD', location || '', req.user.id]
+            `INSERT INTO inventory (product_id, source_type, source_id, quantity, purchase_price, currency, location, user_id) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+            [product_id, source_type, source_id || null, quantity, purchase_price || null, currency || 'GEL', location || '', req.user.id]
         );
         
         res.json(result.rows[0]);
@@ -196,27 +196,28 @@ router.post('/inventory/receive', authenticateToken, async (req, res) => {
     }
 });
 
-// НОВЫЙ роут: обновить цену продажи в inventory
-router.post('/inventory/update-price', authenticateToken, async (req, res) => {
+// Обновить цену продажи для всех inventory записей товара
+router.post('/products/update-price', authenticateToken, async (req, res) => {
     try {
-        const { inventory_id, sale_price } = req.body;
+        const { product_id, sale_price } = req.body;
         
-        if (!inventory_id || sale_price === undefined) {
-            return res.status(400).json({ error: 'inventory_id and sale_price are required' });
+        if (!product_id || sale_price === undefined) {
+            return res.status(400).json({ error: 'product_id and sale_price are required' });
         }
         
+        // Обновляем цену для всех записей inventory этого товара
         const result = await pool.query(
-            'UPDATE inventory SET sale_price = $1 WHERE id = $2 RETURNING *',
-            [sale_price, inventory_id]
+            'UPDATE inventory SET sale_price = $1 WHERE product_id = $2 RETURNING *',
+            [sale_price, product_id]
         );
         
         if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Inventory item not found' });
+            return res.status(404).json({ error: 'Product not found in inventory' });
         }
         
-        res.json(result.rows[0]);
+        res.json({ success: true, updated: result.rows.length });
     } catch (error) {
-        console.error('Update inventory price error:', error);
+        console.error('Update product price error:', error);
         res.status(500).json({ error: 'Failed to update price' });
     }
 });
