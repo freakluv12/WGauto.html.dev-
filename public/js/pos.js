@@ -106,15 +106,24 @@ const POS = {
     async loadProducts(subcategoryId) {
         this.currentSubcategoryId = subcategoryId;
         try {
-            // Загружаем продукты - теперь они уже содержат default_sale_price из базы
+            // Загружаем продукты
             const response = await API.call(`/api/warehouse/products/${subcategoryId}`);
             if (!response) return;
             
             const products = await response.json();
             
-            // Присваиваем цену из default_sale_price
+            console.log('POS: Loaded products:', products); // Для отладки
+            
+            // Для каждого продукта устанавливаем цену
             products.forEach(product => {
-                product.defaultSalePrice = parseFloat(product.default_sale_price) || 0;
+                // Пробуем взять из default_sale_price
+                if (product.default_sale_price && parseFloat(product.default_sale_price) > 0) {
+                    product.defaultSalePrice = parseFloat(product.default_sale_price);
+                    console.log(`POS: Product "${product.name}" has price from DB: ${product.defaultSalePrice} ₾`);
+                } else {
+                    product.defaultSalePrice = 0;
+                    console.warn(`POS: Product "${product.name}" has NO PRICE! Set price in warehouse.`);
+                }
             });
             
             this.products = products;
