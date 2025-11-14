@@ -45,33 +45,35 @@ app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
         const userFilter = userId ? 'AND user_id = $1' : '';
         const params = userId ? [userId] : [];
 
-        const incomeQuery = 
-            SELECT currency, SUM(amount) AS total
-            FROM transactions
+        const incomeQuery = `
+            SELECT currency, SUM(amount) as total 
+            FROM transactions 
             WHERE type = 'income' ${userFilter}
-            GROUP BY currency;
-        ;
-        const expenseQuery = 
-            SELECT currency, SUM(amount) AS total
-            FROM transactions
-            WHERE type = 'expense' ${userFilter}
-            GROUP BY currency;
-        ;
-        const carsQuery = 
-            SELECT status, COUNT(*) AS count
-            FROM cars
-            WHERE 1=1 ${userFilter}
-            GROUP BY status;
-        ;
-        const activeRentalsQuery = 
-            SELECT COUNT(*) AS count
-            FROM rentals
-            WHERE status = 'active' ${userFilter};
-        ;
-
+            GROUP BY currency
+        `;
         const income = await pool.query(incomeQuery, params);
+
+        const expenseQuery = `
+            SELECT currency, SUM(amount) as total 
+            FROM transactions 
+            WHERE type = 'expense' ${userFilter}
+            GROUP BY currency
+        `;
         const expenses = await pool.query(expenseQuery, params);
+
+        const carsQuery = `
+            SELECT status, COUNT(*) as count 
+            FROM cars 
+            WHERE 1=1 ${userFilter}
+            GROUP BY status
+        `;
         const cars = await pool.query(carsQuery, params);
+
+        const activeRentalsQuery = `
+            SELECT COUNT(*) as count 
+            FROM rentals 
+            WHERE status = 'active' ${userFilter}
+        `;
         const activeRentals = await pool.query(activeRentalsQuery, params);
 
         res.json({
@@ -80,7 +82,6 @@ app.get('/api/stats/dashboard', authenticateToken, async (req, res) => {
             cars: cars.rows,
             activeRentals: activeRentals.rows[0]?.count || 0
         });
-
     } catch (error) {
         console.error('Dashboard error:', error);
         res.status(500).json({ error: 'Failed to fetch dashboard data' });
