@@ -222,6 +222,109 @@ router.post('/products/update-price', authenticateToken, async (req, res) => {
     }
 });
 
+// POS: Завершить продажу
+router.post('/pos/complete-sale', authenticateToken, async (req, res) => {
+    try {
+        const { items, discount, final_total } = req.body;
+        
+        if (!items || items.length === 0) {
+            return res.status(400).json({ error: 'Items are required' });
+        }
+
+        // Начинаем транзакцию
+        await pool.query('BEGIN');
+
+        try {
+            // 1. Создаем смену если нет активной
+            let shiftResult = await pool.query(`
+                SELECT id FROM pos_shifts 
+                WHERE user_id = $1 AND end_time IS NULL 
+                LIMIT 1
+            `, [req.user.id]);
+
+            let shiftId;
+            if (shiftResult.rows.length === 0) {
+                // Создаем новую смену
+                const newShift = await pool.query(
+                    'INSERT INTO pos_shifts (user_id) VALUES ($1) RETURNING id',
+                    [req.user.id]
+                );
+                shiftId = newShift.rows[0].id;
+            } else {
+                shiftId = shiftResult.rows[0].id;
+            }
+
+            // 2. Создаем чек
+            const receiptResult = await pool.query(`
+                INSERT INTO receipts (shift_id, user_id, total_amount, currency)
+                VALUES ($1, $2, $3, $4)
+                RETURNING id
+            `, [shiftId, req.user.id, final_total, 'GEL']);
+
+            const receiptId = receiptResult.rows[0].id;
+
+            // 3. Добавляем товары в чек и списываем со склада
+            for (const item of items) {
+                // Добавляем в sale_items
+                await pool.query(`
+                    INSERT INTO sale_items (receipt_id, product_id, quantity, sale_price, cost_price, currency)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                `, [receiptId, item.id, item.quantity, item.salePrice, item.purchase_price || 0, 'GEL']);
+
+                // Списываем со склада (FIFO - первые пришли, первые ушли)
+                let remainingQty = item.quantity;
+                const inventoryItems = await pool.query(`
+                    SELECT id, quantity FROM inventory 
+                    WHERE product_id = $1 AND quantity > 0
+                    ORDER BY received_date ASC
+                `, [item.id]);
+
+                for (const invItem of inventoryItems.rows) {
+                    if (remainingQty <= 0) break;
+
+                    if (invItem.quantity >= remainingQty) {
+                        // Достаточно на этой позиции
+                        await pool.query(
+                            'UPDATE inventory SET quantity = quantity - $1 WHERE id = $2',
+                            [remainingQty, invItem.id]
+                        );
+                        remainingQty = 0;
+                    } else {
+                        // Используем всё с этой позиции
+                        await pool.query(
+                            'UPDATE inventory SET quantity = 0 WHERE id = $1',
+                            [invItem.id]
+                        );
+                        remainingQty -= invItem.quantity;
+                    }
+                }
+
+                if (remainingQty > 0) {
+                    throw new Error(`Недостаточно товара "${item.name}" на складе`);
+                }
+            }
+
+            // Коммитим транзакцию
+            await pool.query('COMMIT');
+
+            res.json({ 
+                success: true, 
+                receipt_id: receiptId,
+                shift_id: shiftId
+            });
+
+        } catch (error) {
+            // Откатываем транзакцию при ошибке
+            await pool.query('ROLLBACK');
+            throw error;
+        }
+
+    } catch (error) {
+        console.error('Complete sale error:', error);
+        res.status(500).json({ error: error.message || 'Failed to complete sale' });
+    }
+});
+
 // Analytics
 router.get('/analytics', authenticateToken, async (req, res) => {
     try {
