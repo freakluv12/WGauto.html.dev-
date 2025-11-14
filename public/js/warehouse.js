@@ -19,7 +19,6 @@ const Warehouse = {
             <div class="warehouse-action-bar">
                 <button class="btn" onclick="Warehouse.showAction('stock')">📦 Склад</button>
                 <button class="btn" onclick="Warehouse.showAction('receive')">📥 Оприходование</button>
-                <button class="btn" onclick="Warehouse.showAction('sell')">💰 Продажа</button>
                 <button class="btn" onclick="Warehouse.showAction('analytics')">📊 Аналитика</button>
             </div>
             <div id="warehouseMainContent"></div>
@@ -81,20 +80,34 @@ const Warehouse = {
             <button class="btn" onclick="Warehouse.addProduct()">Добавить товар</button>
         `);
 
-        // Product Details Modal - УЛУЧШЕННЫЙ с редактированием цен
+        // Product Details Modal - УЛУЧШЕННЫЙ с отдельным полем цены
         modalsContainer.innerHTML += `
             <div id="productDetailsModal" class="modal">
                 <div class="modal-content" style="max-width: 900px;">
                     <span class="close" onclick="Utils.closeModal('productDetailsModal')">&times;</span>
                     <h2 id="productDetailsName">Product Details</h2>
-                    <div style="margin-bottom: 20px; padding: 15px; background: #3d3d3d; border-radius: 8px;">
-                        <p><strong>SKU:</strong> <span id="productDetailsSKU"></span></p>
-                        <p><strong>Всего на складе:</strong> <span id="productDetailsTotal" style="font-weight: bold; color: #4CAF50;"></span></p>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                        <div style="padding: 15px; background: #3d3d3d; border-radius: 8px;">
+                            <p><strong>SKU:</strong> <span id="productDetailsSKU"></span></p>
+                            <p><strong>Всего на складе:</strong> <span id="productDetailsTotal" style="font-weight: bold; color: #4CAF50;"></span></p>
+                        </div>
+                        
+                        <div style="padding: 15px; background: #2d2d2d; border-radius: 8px; border: 2px solid #4CAF50;">
+                            <label style="display: block; margin-bottom: 10px; font-weight: bold; color: #4CAF50;">💰 Цена продажи для кассы</label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="number" id="productSalePrice" step="0.01" placeholder="0.00" 
+                                       style="flex: 1; padding: 10px; font-size: 18px; background: #3d3d3d; border: 1px solid #4CAF50; color: #fff; border-radius: 4px;">
+                                <span style="font-size: 18px; font-weight: bold;">₾</span>
+                                <button class="btn" onclick="Warehouse.updateProductPrice()" style="background: #4CAF50;">Сохранить</button>
+                            </div>
+                            <p style="margin-top: 10px; font-size: 12px; color: #999;">Эта цена будет использоваться в кассе при продаже товара</p>
+                        </div>
                     </div>
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                        <h3 style="margin: 0;">Складские позиции</h3>
-                        <button class="btn" onclick="Warehouse.showAddInventoryForm()">+ Добавить товар на склад</button>
+                        <h3 style="margin: 0;">История оприходований</h3>
+                        <button class="btn" onclick="Warehouse.showAddInventoryForm()">+ Оприходовать товар</button>
                     </div>
                     
                     <div id="addInventoryForm" style="display: none; background: #2d2d2d; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -107,10 +120,6 @@ const Warehouse = {
                             <div class="form-group">
                                 <label>Цена закупки</label>
                                 <input type="number" id="invPurchasePrice" step="0.01" placeholder="0.00">
-                            </div>
-                            <div class="form-group">
-                                <label>Цена продажи 💰</label>
-                                <input type="number" id="invSalePrice" step="0.01" placeholder="0.00" style="border: 2px solid #4CAF50;">
                             </div>
                             <div class="form-group">
                                 <label>Валюта</label>
@@ -144,10 +153,9 @@ const Warehouse = {
                                 <th>Источник</th>
                                 <th>Количество</th>
                                 <th>Цена закупки</th>
-                                <th>Цена продажи</th>
                                 <th>Место</th>
                                 <th>Дата</th>
-                                <th>Действия</th>
+                                <th>На складе</th>
                             </tr>
                         </thead>
                         <tbody></tbody>
@@ -206,10 +214,7 @@ const Warehouse = {
                 this.loadCategories();
                 break;
             case 'receive':
-                alert('Функция оприходования в разработке');
-                break;
-            case 'sell':
-                alert('Функция продажи в разработке');
+                this.showReceiveView();
                 break;
             case 'analytics':
                 this.showAnalyticsModal();
@@ -489,21 +494,24 @@ const Warehouse = {
             this.inventory = await response.json();
             const product = this.products.find(p => p.id === productId);
             
+            // Заполняем данные товара
+            document.getElementById('productDetailsName').textContent = product.name;
+            document.getElementById('productDetailsSKU').textContent = product.sku || 'N/A';
+            document.getElementById('productDetailsTotal').textContent = product.total_quantity || 0;
+            
+            // Устанавливаем текущую цену продажи
+            document.getElementById('productSalePrice').value = product.default_sale_price || '';
+            
+            // Рендерим историю оприходований
             let inventoryHTML = '';
             if (this.inventory.length === 0) {
-                inventoryHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">Нет остатков на складе. Нажмите "+ Добавить товар на склад"</td></tr>';
+                inventoryHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">Нет оприходований. Нажмите "+ Оприходовать товар"</td></tr>';
             } else {
                 inventoryHTML = this.inventory.map(inv => `
                     <tr>
                         <td>${inv.source_name}</td>
                         <td>${inv.quantity}</td>
                         <td>${inv.purchase_price ? Utils.getCurrencySymbol(inv.currency) + inv.purchase_price : 'N/A'}</td>
-                        <td>
-                            <input type="number" step="0.01" value="${inv.sale_price || ''}" 
-                                   placeholder="Укажите цену" 
-                                   style="width: 100px; padding: 5px; background: #3d3d3d; border: 1px solid #4CAF50; color: #fff; border-radius: 4px;"
-                                   onchange="Warehouse.updateInventoryPrice(${inv.id}, this.value)">
-                        </td>
                         <td>${inv.location || 'N/A'}</td>
                         <td>${Utils.formatDate(inv.received_date)}</td>
                         <td>${inv.days_in_storage} дней</td>
@@ -511,15 +519,46 @@ const Warehouse = {
                 `).join('');
             }
             
-            document.getElementById('productDetailsName').textContent = product.name;
-            document.getElementById('productDetailsSKU').textContent = product.sku || 'N/A';
-            document.getElementById('productDetailsTotal').textContent = product.total_quantity || 0;
-            
             document.querySelector('#productInventoryTable tbody').innerHTML = inventoryHTML;
             
             Utils.showModal('productDetailsModal');
         } catch (error) {
             console.error('Show product details error:', error);
+        }
+    },
+
+    async updateProductPrice() {
+        const newPrice = parseFloat(document.getElementById('productSalePrice').value);
+        
+        if (isNaN(newPrice) || newPrice < 0) {
+            alert('Укажите корректную цену');
+            return;
+        }
+
+        try {
+            // Обновляем цену для всех inventory records этого товара
+            const response = await fetch('/api/warehouse/products/update-price', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                    product_id: this.currentProductId,
+                    sale_price: newPrice
+                })
+            });
+
+            if (response.ok) {
+                alert('Цена успешно обновлена!');
+                // Обновляем список продуктов
+                this.loadProducts(this.currentSubcategoryId);
+            } else {
+                alert('Ошибка обновления цены');
+            }
+        } catch (error) {
+            console.error('Update price error:', error);
+            alert('Ошибка: ' + error.message);
         }
     },
 
@@ -537,7 +576,6 @@ const Warehouse = {
             source_type: document.getElementById('invSourceType').value,
             quantity: parseInt(document.getElementById('invQuantity').value),
             purchase_price: parseFloat(document.getElementById('invPurchasePrice').value) || null,
-            sale_price: parseFloat(document.getElementById('invSalePrice').value) || null,
             currency: document.getElementById('invCurrency').value,
             location: document.getElementById('invLocation').value
         };
@@ -554,51 +592,190 @@ const Warehouse = {
             });
 
             if (response && response.ok) {
-                alert('Товар успешно добавлен на склад!');
+                alert('Товар успешно оприходован!');
                 this.hideAddInventoryForm();
                 // Обновляем детали продукта
                 this.showProductDetails(this.currentProductId);
                 // Обновляем список продуктов
                 this.loadProducts(this.currentSubcategoryId);
             } else {
-                alert('Ошибка добавления товара на склад');
+                alert('Ошибка оприходования товара');
             }
         } catch (error) {
             alert('Error: ' + error.message);
         }
     },
 
-    async updateInventoryPrice(inventoryId, newPrice) {
-        const price = parseFloat(newPrice);
-        if (isNaN(price) || price < 0) {
-            alert('Некорректная цена');
+    // Показать view оприходования
+    async showReceiveView() {
+        try {
+            // Загружаем все категории для выбора
+            const response = await API.call('/api/warehouse/categories');
+            if (!response) return;
+            this.categories = await response.json();
+
+            document.getElementById('warehouseMainContent').innerHTML = `
+                <h3>📥 Оприходование товара</h3>
+                <div style="max-width: 600px; margin: 0 auto; background: #3d3d3d; padding: 30px; border-radius: 12px;">
+                    <div class="form-group">
+                        <label>1. Выберите категорию</label>
+                        <select id="receiveCategory" onchange="Warehouse.loadReceiveSubcategories()">
+                            <option value="">-- Выберите категорию --</option>
+                            ${this.categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('')}
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" id="receiveSubcategoryGroup" style="display: none;">
+                        <label>2. Выберите подкатегорию</label>
+                        <select id="receiveSubcategory" onchange="Warehouse.loadReceiveProducts()">
+                            <option value="">-- Выберите подкатегорию --</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" id="receiveProductGroup" style="display: none;">
+                        <label>3. Выберите товар</label>
+                        <select id="receiveProduct" onchange="Warehouse.selectReceiveProduct()">
+                            <option value="">-- Выберите товар --</option>
+                        </select>
+                    </div>
+
+                    <div id="receiveFormFields" style="display: none;">
+                        <hr style="margin: 30px 0; border-color: #555;">
+                        
+                        <h4>Данные оприходования</h4>
+                        
+                        <div class="form-group">
+                            <label>Количество</label>
+                            <input type="number" id="receiveQuantity" min="1" value="1" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Цена закупки</label>
+                            <input type="number" id="receivePurchasePrice" step="0.01" placeholder="0.00">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Валюта</label>
+                            <select id="receiveCurrency">
+                                <option value="GEL">GEL (₾)</option>
+                                <option value="USD">USD ($)</option>
+                                <option value="EUR">EUR (€)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Место хранения</label>
+                            <input type="text" id="receiveLocation" placeholder="Склад А, Полка 1">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Источник</label>
+                            <select id="receiveSourceType">
+                                <option value="purchased">Закупка</option>
+                                <option value="dismantled">Разобран</option>
+                            </select>
+                        </div>
+                        
+                        <button class="btn" onclick="Warehouse.submitReceive()" style="width: 100%; padding: 15px; margin-top: 20px;">
+                            Оприходовать товар
+                        </button>
+                    </div>
+                </div>
+            `;
+        } catch (error) {
+            console.error('Show receive view error:', error);
+        }
+    },
+
+    async loadReceiveSubcategories() {
+        const categoryId = document.getElementById('receiveCategory').value;
+        if (!categoryId) {
+            document.getElementById('receiveSubcategoryGroup').style.display = 'none';
+            document.getElementById('receiveProductGroup').style.display = 'none';
+            document.getElementById('receiveFormFields').style.display = 'none';
             return;
         }
 
         try {
-            // Создаем роут для обновления цены
-            const response = await fetch('/api/warehouse/inventory/update-price', {
+            const response = await API.call(`/api/warehouse/subcategories/${categoryId}`);
+            if (!response) return;
+            
+            const subcategories = await response.json();
+            const select = document.getElementById('receiveSubcategory');
+            select.innerHTML = '<option value="">-- Выберите подкатегорию --</option>' +
+                subcategories.map(sub => `<option value="${sub.id}">${sub.name}</option>`).join('');
+            
+            document.getElementById('receiveSubcategoryGroup').style.display = 'block';
+            document.getElementById('receiveProductGroup').style.display = 'none';
+            document.getElementById('receiveFormFields').style.display = 'none';
+        } catch (error) {
+            console.error('Load receive subcategories error:', error);
+        }
+    },
+
+    async loadReceiveProducts() {
+        const subcategoryId = document.getElementById('receiveSubcategory').value;
+        if (!subcategoryId) {
+            document.getElementById('receiveProductGroup').style.display = 'none';
+            document.getElementById('receiveFormFields').style.display = 'none';
+            return;
+        }
+
+        try {
+            const response = await API.call(`/api/warehouse/products/${subcategoryId}`);
+            if (!response) return;
+            
+            const products = await response.json();
+            const select = document.getElementById('receiveProduct');
+            select.innerHTML = '<option value="">-- Выберите товар --</option>' +
+                products.map(prod => `<option value="${prod.id}">${prod.name} (на складе: ${prod.total_quantity || 0})</option>`).join('');
+            
+            document.getElementById('receiveProductGroup').style.display = 'block';
+            document.getElementById('receiveFormFields').style.display = 'none';
+        } catch (error) {
+            console.error('Load receive products error:', error);
+        }
+    },
+
+    selectReceiveProduct() {
+        const productId = document.getElementById('receiveProduct').value;
+        document.getElementById('receiveFormFields').style.display = productId ? 'block' : 'none';
+    },
+
+    async submitReceive() {
+        const data = {
+            product_id: parseInt(document.getElementById('receiveProduct').value),
+            source_type: document.getElementById('receiveSourceType').value,
+            quantity: parseInt(document.getElementById('receiveQuantity').value),
+            purchase_price: parseFloat(document.getElementById('receivePurchasePrice').value) || null,
+            currency: document.getElementById('receiveCurrency').value,
+            location: document.getElementById('receiveLocation').value
+        };
+
+        if (!data.product_id) {
+            alert('Выберите товар');
+            return;
+        }
+
+        if (!data.quantity || data.quantity <= 0) {
+            alert('Укажите корректное количество');
+            return;
+        }
+
+        try {
+            const response = await API.call('/api/warehouse/inventory/receive', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({
-                    inventory_id: inventoryId,
-                    sale_price: price
-                })
+                body: JSON.stringify(data)
             });
 
-            if (response.ok) {
-                console.log('Price updated successfully');
-                // Обновляем список продуктов чтобы показать новую цену
-                this.loadProducts(this.currentSubcategoryId);
+            if (response && response.ok) {
+                alert('Товар успешно оприходован!');
+                this.showReceiveView(); // Сбросить форму
             } else {
-                alert('Ошибка обновления цены');
+                alert('Ошибка оприходования товара');
             }
         } catch (error) {
-            console.error('Update price error:', error);
-            alert('Ошибка: ' + error.message);
+            alert('Error: ' + error.message);
         }
     },
 
